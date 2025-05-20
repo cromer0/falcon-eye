@@ -24,6 +24,10 @@ body {
     --tab-active-text: #fff;
     --tab-inactive-bg: #e9ecef;
     --tab-inactive-text: #495057;
+    --gauge-track-color: #e9ecef;
+    --progress-bar-green: #28a745;
+    --progress-bar-yellow: #ffc107;
+    --progress-bar-red: #dc3545;
 }
 
 /* Dark Mode Variables */
@@ -44,6 +48,10 @@ body.dark-mode {
     --tab-active-text: #e0e0e0;
     --tab-inactive-bg: #2c2c4a;
     --tab-inactive-text: #a0a0c0;
+    --gauge-track-color: #3a3a5e;
+    --progress-bar-green: #34c759;
+    --progress-bar-yellow: #ffd60a;
+    --progress-bar-red: #ef4444;
 }
 
 /* Apply Variables */
@@ -251,4 +259,150 @@ body.dark-mode .chart-container {
     .tab-button.active {
         border-bottom: 3px solid var(--primary-color); /* Keep bottom border for active on mobile */
     }
+}
+
+.table-container {
+    overflow-x: auto; /* For responsive tables */
+    background-color: var(--card-bg-color);
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+body.dark-mode .table-container {
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+
+#remoteServersTable {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+
+#remoteServersTable th, #remoteServersTable td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.9em;
+}
+
+#remoteServersTable th {
+    background-color: color-mix(in srgb, var(--card-bg-color) 95%, var(--text-color) 5%);
+    color: var(--primary-color);
+    font-weight: 600;
+}
+body.dark-mode #remoteServersTable th {
+     background-color: color-mix(in srgb, var(--card-bg-color) 90%, var(--text-color) 10%);
+}
+
+
+#remoteServersTable tbody tr:hover {
+    background-color: color-mix(in srgb, var(--card-bg-color) 90%, var(--text-color) 10%);
+}
+
+#remoteServersTable td .status-online {
+    color: var(--gauge-cpu-color); /* Green */
+    font-weight: bold;
+}
+#remoteServersTable td .status-offline {
+    color: #dc3545; /* Red */
+    font-weight: bold;
+}
+#remoteServersTable td .status-error {
+    color: #fd7e14; /* Orange */
+    font-weight: bold;
+}
+
+/* Progress Bar Styling (Optional, for visual representation in table) */
+.progress-bar-container {
+    width: 100%;
+    min-width: 80px; /* Ensure it's visible */
+    background-color: var(--gauge-track-color);
+    border-radius: 4px;
+    overflow: hidden;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    position: relative; /* For text overlay */
+}
+
+.progress-bar {
+    height: 100%;
+    background-color: var(--primary-color);
+    text-align: center;
+    line-height: 18px; /* Match height */
+    color: white;
+    font-size: 0.8em;
+    transition: width 0.3s ease-in-out;
+    white-space: nowrap;
+}
+.progress-bar-text {
+    position: absolute;
+    left: 5px;
+    right: 5px;
+    text-align: center;
+    font-size: 0.8em;
+    color: var(--text-color); /* Ensure text is visible over bar */
+    font-weight: 500;
+    mix-blend-mode: difference; /* Makes text visible on varied backgrounds */
+}
+body.dark-mode .progress-bar-text {
+    color: #fff; /* Brighter text for dark mode */
+    mix-blend-mode: normal; /* Or adjust for best visibility */
+}
+
+.tooltip-icon {
+    cursor: help;
+    margin-left: 5px;
+    color: var(--primary-color);
+}
+
+
+.progress-bar-container {
+    width: 100%;
+    min-width: 80px;
+    background-color: var(--gauge-track-color);
+    border-radius: 4px;
+    overflow: hidden;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    position: relative;
+}
+.progress-bar-container:last-child {
+    margin-bottom: 0;
+}
+
+.progress-bar {
+    height: 100%;
+    /* background-color will be set by JS */
+    text-align: center;
+    line-height: 18px;
+    color: white; /* Text color on the bar itself */
+    font-size: 0.8em;
+    transition: width 0.3s ease-in-out, background-color 0.3s ease-in-out; /* Added background-color transition */
+    white-space: nowrap;
+}
+.progress-bar-text { /* Text overlay on the progress bar container */
+    position: absolute;
+    left: 5px;
+    right: 5px;
+    text-align: center;
+    font-size: 0.8em;
+    color: var(--text-color);
+    font-weight: 500;
+    mix-blend-mode: difference; /* Helps text visibility on varied bar colors */
+    pointer-events: none; /* So it doesn't interfere with tooltips on the bar itself */
+}
+body.dark-mode .progress-bar-text {
+    color: #fff;
+    mix-blend-mode: normal; /* Often better for dark mode */
+}
+
+/* Container for multiple progress bars in one cell */
+.multi-progress-bar-cell {
+    display: flex;
+    flex-direction: column; /* Stack CPU, RAM, Disk vertically within the cell */
+    gap: 2px; /* Small gap between bars */
+    min-width: 150px; /* Ensure the cell has some width */
 }

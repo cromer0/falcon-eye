@@ -18,6 +18,7 @@
     <div class="tabs">
         <button class="tab-button active" data-tab="current">Current Data</button>
         <button class="tab-button" data-tab="historical">Historical Data</button>
+        <button class="tab-button" data-tab="remote">Remote Servers</button>
     </div>
 
     <main>
@@ -62,6 +63,31 @@
             <div class="chart-container">
                 <canvas id="historicalDiskChart"></canvas>
             </div>
+        </div>
+        <div id="remote" class="tab-content">
+            <h2>Remote Server Stats</h2>
+            <div class="table-container">
+                <table id="remoteServersTable">
+                    <thead>
+                        <tr>
+                            <th>Server Name</th>
+                            <th>Host</th>
+                            <th>Status</th>
+                            <th>CPU Cores</th>
+                            <th>CPU Model</th>
+                            <th>RAM Usage (GB)</th>
+                            <th>Disk Usage (GB)</th>
+                            <th>CPU %</th>   <!-- Separate CPU % Column -->
+                            <th>RAM %</th>   <!-- Separate RAM % Column -->
+                            <th>Disk %</th>  <!-- Separate Disk % Column -->
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Data will be populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="current-timestamp">Last updated: <span id="remoteLastUpdated">Never</span></div>
         </div>
     </main>
 
