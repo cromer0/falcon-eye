@@ -1,0 +1,254 @@
+/* Basic Reset & Font */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    transition: background-color 0.3s, color 0.3s;
+}
+
+/* Light Mode Variables */
+:root {
+    --bg-color: #f4f7f6;
+    --text-color: #333;
+    --card-bg-color: #ffffff;
+    --border-color: #e0e0e0;
+    --primary-color: #007bff;
+    --gauge-track-color: #e9ecef;
+    --gauge-cpu-color: #28a745; /* Green */
+    --gauge-ram-color: #ffc107; /* Yellow */
+    --gauge-disk-color: #17a2b8; /* Teal */
+    --chart-line-cpu: #28a745;
+    --chart-line-ram: #ffc107;
+    --chart-line-disk: #17a2b8;
+    --tab-active-bg: #007bff;
+    --tab-active-text: #fff;
+    --tab-inactive-bg: #e9ecef;
+    --tab-inactive-text: #495057;
+}
+
+/* Dark Mode Variables */
+body.dark-mode {
+    --bg-color: #1a1a2e;
+    --text-color: #e0e0e0;
+    --card-bg-color: #24243e;
+    --border-color: #3a3a5e;
+    --primary-color: #5a8dee;
+    --gauge-track-color: #3a3a5e;
+    --gauge-cpu-color: #34c759;
+    --gauge-ram-color: #ffd60a;
+    --gauge-disk-color: #64d2ff;
+    --chart-line-cpu: #34c759;
+    --chart-line-ram: #ffd60a;
+    --chart-line-disk: #64d2ff;
+    --tab-active-bg: #5a8dee;
+    --tab-active-text: #e0e0e0;
+    --tab-inactive-bg: #2c2c4a;
+    --tab-inactive-text: #a0a0c0;
+}
+
+/* Apply Variables */
+body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+}
+
+header {
+    background-color: var(--primary-color);
+    color: white;
+    padding: 15px 25px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+header h1 {
+    margin: 0;
+    font-size: 1.5em;
+}
+
+#darkModeToggle {
+    padding: 8px 15px;
+    background-color: var(--card-bg-color);
+    color: var(--primary-color);
+    border: 1px solid var(--primary-color);
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: background-color 0.2s, color 0.2s;
+}
+body.dark-mode #darkModeToggle {
+    background-color: var(--bg-color);
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+
+/* Tabs */
+.tabs {
+    display: flex;
+    background-color: var(--card-bg-color);
+    border-bottom: 1px solid var(--border-color);
+    padding: 0 20px;
+}
+
+.tab-button {
+    padding: 15px 20px;
+    cursor: pointer;
+    border: none;
+    background-color: var(--tab-inactive-bg);
+    color: var(--tab-inactive-text);
+    font-size: 1em;
+    font-weight: 500;
+    transition: background-color 0.2s, color 0.2s;
+    outline: none;
+}
+
+.tab-button.active {
+    background-color: var(--tab-active-bg);
+    color: var(--tab-active-text);
+    border-bottom: 3px solid var(--primary-color); /* Highlight active tab */
+}
+body.dark-mode .tab-button.active {
+    border-bottom: 3px solid var(--primary-color);
+}
+
+
+.tab-button:hover:not(.active) {
+    background-color: color-mix(in srgb, var(--tab-inactive-bg) 90%, var(--text-color) 10%);
+}
+
+main {
+    padding: 20px;
+}
+
+.tab-content {
+    display: none;
+    animation: fadeIn 0.5s;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+h2 {
+    color: var(--primary-color);
+    border-bottom: 2px solid var(--border-color);
+    padding-bottom: 10px;
+    margin-top: 0;
+}
+
+/* Gauges */
+.gauges-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    justify-content: space-around;
+    margin-bottom: 20px;
+}
+
+.gauge-wrapper {
+    background-color: var(--card-bg-color);
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    text-align: center;
+    min-width: 250px;
+    flex: 1;
+}
+body.dark-mode .gauge-wrapper {
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+
+.gauge-wrapper h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: var(--text-color);
+}
+
+.gauge {
+    position: relative;
+    width: 150px; /* Adjust as needed */
+    height: 150px; /* Adjust as needed */
+    margin: 0 auto 10px auto;
+}
+
+.gauge canvas {
+    display: block;
+}
+
+.gauge-value {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 1.8em;
+    font-weight: bold;
+    color: var(--text-color);
+}
+
+.gauge-detail {
+    font-size: 0.9em;
+    color: var(--text-color);
+    opacity: 0.8;
+}
+
+.current-timestamp {
+    text-align: right;
+    font-size: 0.9em;
+    color: var(--text-color);
+    opacity: 0.7;
+    margin-top: 20px;
+}
+
+/* Charts */
+.chart-container {
+    background-color: var(--card-bg-color);
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    margin-bottom: 20px;
+}
+body.dark-mode .chart-container {
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+.chart-container canvas {
+    max-width: 100%;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    #darkModeToggle {
+        margin-top: 10px;
+    }
+    .gauges-container {
+        flex-direction: column;
+        align-items: center;
+    }
+    .gauge-wrapper {
+        width: 90%;
+        max-width: 300px;
+    }
+    .tabs {
+        flex-direction: column;
+    }
+    .tab-button {
+        width: 100%;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+    }
+    .tab-button.active {
+        border-bottom: 3px solid var(--primary-color); /* Keep bottom border for active on mobile */
+    }
+}

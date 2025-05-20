@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Server Monitor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script> <!-- For time series charts -->
+</head>
+<body class="light-mode">
+
+    <header>
+        <h1>Server Performance Monitor</h1>
+        <button id="darkModeToggle">Toggle Dark Mode</button>
+    </header>
+
+    <div class="tabs">
+        <button class="tab-button active" data-tab="current">Current Data</button>
+        <button class="tab-button" data-tab="historical">Historical Data</button>
+    </div>
+
+    <main>
+        <div id="current" class="tab-content active">
+            <h2>Current System Usage</h2>
+            <div class="gauges-container">
+                <div class="gauge-wrapper">
+                    <h3>CPU Usage</h3>
+                    <div class="gauge" id="cpuGaugeContainer">
+                        <canvas id="cpuGauge"></canvas>
+                        <div class="gauge-value" id="cpuValue">--%</div>
+                    </div>
+                </div>
+                <div class="gauge-wrapper">
+                    <h3>RAM Usage</h3>
+                    <div class="gauge" id="ramGaugeContainer">
+                        <canvas id="ramGauge"></canvas>
+                        <div class="gauge-value" id="ramValue">--%</div>
+                    </div>
+                    <div class="gauge-detail" id="ramDetail">-- GB / -- GB</div>
+                </div>
+                <div class="gauge-wrapper">
+                    <h3>Disk Usage (/)</h3>
+                    <div class="gauge" id="diskGaugeContainer">
+                        <canvas id="diskGauge"></canvas>
+                        <div class="gauge-value" id="diskValue">--%</div>
+                    </div>
+                    <div class="gauge-detail" id="diskDetail">-- GB / -- GB</div>
+                </div>
+            </div>
+            <div class="current-timestamp">Last updated: <span id="lastUpdated">Never</span></div>
+        </div>
+
+        <div id="historical" class="tab-content">
+            <h2>Historical System Usage (Last ~24 Hours)</h2>
+            <div class="chart-container">
+                <canvas id="historicalCpuChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <canvas id="historicalRamChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <canvas id="historicalDiskChart"></canvas>
+            </div>
+        </div>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
