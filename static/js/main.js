@@ -41,8 +41,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let detailViewInterval; // For auto-refreshing detail view
 
     // --- Config ---
-    const SERVER_LIST_REFRESH_INTERVAL = 15000; // ms
-    const DETAIL_VIEW_REFRESH_INTERVAL = 3000; // ms for current stats in detail view
+    // Use interval from Flask for server list, with a fallback to 15000ms
+    const SERVER_LIST_REFRESH_INTERVAL = window.APP_CONFIG && window.APP_CONFIG.serverListRefreshInterval ? window.APP_CONFIG.serverListRefreshInterval : 15000;
+    // Use interval from Flask for detail view, with a fallback to 3000ms
+    const DETAIL_VIEW_REFRESH_INTERVAL = window.APP_CONFIG && window.APP_CONFIG.detailViewRefreshInterval ? window.APP_CONFIG.detailViewRefreshInterval : 3000;
 
     // --- Helper ---
     const getCssVariable = (variable) => getComputedStyle(document.documentElement).getPropertyValue(variable).trim();
@@ -271,25 +273,65 @@ const getChartJsThemeOptions = () => {
     }
 
     function updateSelectedServerCurrentData() {
-        if (!selectedServerData) return;
+        if (!selectedServerData || !selectedServerData.host) {
+            console.error("No server selected or host missing, cannot update detail view.");
+            // Optionally, clear the interval if this state is reached unexpectedly
+            // if (detailViewInterval) clearInterval(detailViewInterval);
+            return;
+        }
 
-        // Option: Re-fetch specific server data for freshness, or use cached `selectedServerData`
-        // For this example, we'll use the cached data and assume server list refresh keeps it reasonably fresh.
-        // To re-fetch, you'd make an API call here.
-        // For now, let's simulate an update by re-using the selectedServerData
-        // In a real scenario, you'd fetch `/api/remote_servers_stats?host={selectedServerData.host}`
-        // For simplicity, we'll just re-render from the selectedServerData, assuming it's updated by the main list fetch.
-        // This is a slight simplification; ideally, you'd fetch fresh data for the selected server.
+        fetch(`/api/remote_servers_stats?host=${selectedServerData.host}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(freshDataResponse => {
+                let freshData;
+                // The backend currently returns an array. If a single host is requested,
+                // it returns an array with one item, or an empty array if not found.
+                if (Array.isArray(freshDataResponse) && freshDataResponse.length > 0) {
+                    freshData = freshDataResponse[0];
+                } else if (Array.isArray(freshDataResponse) && freshDataResponse.length === 0) {
+                     console.error("Received empty array for host (server might have been removed or host is incorrect):", selectedServerData.host);
+                    // Keep selectedServerData as is, but update timestamp and show an error.
+                    // Or, transition to an error state more explicitly.
+                    if (detailLastUpdatedEl) {
+                        detailLastUpdatedEl.textContent = `Error (not found): ${new Date().toLocaleTimeString()}`;
+                    }
+                    // Potentially update status in UI if server is "offline" or "error"
+                    // renderCurrentDetailData(selectedServerData); // Re-render to show its current (possibly error) state
+                    return; // Stop further processing for this update cycle
+                }
+                else {
+                    // This case handles if the API changes to return a single object directly
+                    // or if the response is not an array as expected (e.g. an error object from proxy)
+                    if (typeof freshDataResponse === 'object' && freshDataResponse !== null && !Array.isArray(freshDataResponse) && freshDataResponse.host === selectedServerData.host) {
+                        freshData = freshDataResponse;
+                    } else {
+                        console.error("Received unexpected data format for host:", selectedServerData.host, freshDataResponse);
+                        if (detailLastUpdatedEl) {
+                            detailLastUpdatedEl.textContent = `Error (invalid data): ${new Date().toLocaleTimeString()}`;
+                        }
+                        // renderCurrentDetailData(selectedServerData); // Re-render to show its current (possibly error) state
+                        return; // Stop further processing
+                    }
+                }
 
-        // If you want to fetch live data for the single selected server:
-        // fetch(`/api/remote_servers_stats?host=${selectedServerData.host}`) // Hypothetical endpoint
-        //  .then(response => response.json())
-        //  .then(freshData => {
-        //      selectedServerData = freshData; // Update cache
-        //      renderCurrentDetailData(freshData);
-        //  });
-        // For now, just render from existing selectedServerData:
-        renderCurrentDetailData(selectedServerData);
+                selectedServerData = freshData; // Update the cached data
+                renderCurrentDetailData(selectedServerData);
+            })
+            .catch(error => {
+                console.error('Error fetching details for server:', selectedServerData.host, error);
+                if (detailLastUpdatedEl) {
+                    detailLastUpdatedEl.textContent = `Error updating: ${new Date().toLocaleTimeString()}`;
+                }
+                // Optionally, update status in UI to reflect the error
+                // selectedServerData.status = 'error';
+                // selectedServerData.error_message = `Failed to refresh: ${error.message}`;
+                // renderCurrentDetailData(selectedServerData); // Re-render to show its error state
+            });
     }
 
     function renderCurrentDetailData(data) {
