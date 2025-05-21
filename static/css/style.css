@@ -406,3 +406,92 @@ body.dark-mode .progress-bar-text {
     gap: 2px; /* Small gap between bars */
     min-width: 150px; /* Ensure the cell has some width */
 }
+.view {
+    display: none; /* Hide views by default */
+    padding: 20px;
+    animation: fadeIn 0.5s;
+}
+.view.active {
+    display: block; /* Show active view */
+}
+
+#backToServerListButton {
+    margin-bottom: 15px;
+    padding: 8px 15px;
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+body.dark-mode #backToServerListButton {
+    background-color: var(--primary-color); /* Keep consistent or adjust for dark */
+}
+#backToServerListButton:hover {
+    opacity: 0.9;
+}
+
+
+/* Server List Table Specifics */
+#remoteServersTable tbody tr {
+    cursor: pointer; /* Indicate rows are clickable */
+}
+#remoteServersTable tbody tr:hover {
+    background-color: color-mix(in srgb, var(--card-bg-color) 90%, var(--text-color) 10%);
+}
+
+
+/* Detail View Tabs */
+.detail-tabs {
+    display: flex;
+    background-color: var(--card-bg-color);
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 20px;
+    margin-top:10px;
+}
+
+.detail-tab-button {
+    padding: 12px 18px; /* Slightly smaller than main tabs */
+    cursor: pointer;
+    border: none;
+    background-color: var(--tab-inactive-bg);
+    color: var(--tab-inactive-text);
+    font-size: 0.95em;
+    font-weight: 500;
+    transition: background-color 0.2s, color 0.2s;
+    outline: none;
+}
+
+.detail-tab-button.active {
+    background-color: var(--tab-active-bg);
+    color: var(--tab-active-text);
+    border-bottom: 2px solid var(--primary-color);
+}
+
+.detail-tab-content {
+    display: none;
+}
+.detail-tab-content.active {
+    display: block;
+}
+
+/* Detail View Gauges */
+#serverDetailView .gauges-container {
+    margin-top: 15px;
+}
+#serverDetailView .gauge-wrapper h4 { /* Use h4 for sub-headings */
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-size: 1.1em;
+}
+#serverDetailView .gauge-detail {
+    font-size: 0.85em;
+}
+#historicalDataMessage {
+    padding: 20px;
+    text-align: center;
+    background-color: var(--card-bg-color);
+    border-radius: 5px;
+    color: var(--text-color);
+}

@@ -6,88 +6,91 @@
     <title>Server Monitor</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script> <!-- For time series charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
 </head>
 <body class="light-mode">
 
     <header>
         <h1>Server Performance Monitor</h1>
-        <button id="darkModeToggle">Toggle Dark Mode</button>
+        <button id="darkModeToggle">☾</button>
     </header>
 
-    <div class="tabs">
-        <button class="tab-button active" data-tab="current">Current Data</button>
-        <button class="tab-button" data-tab="historical">Historical Data</button>
-        <button class="tab-button" data-tab="remote">Remote Servers</button>
-    </div>
-
     <main>
-        <div id="current" class="tab-content active">
-            <h2>Current System Usage</h2>
-            <div class="gauges-container">
-                <div class="gauge-wrapper">
-                    <h3>CPU Usage</h3>
-                    <div class="gauge" id="cpuGaugeContainer">
-                        <canvas id="cpuGauge"></canvas>
-                        <div class="gauge-value" id="cpuValue">--%</div>
-                    </div>
-                </div>
-                <div class="gauge-wrapper">
-                    <h3>RAM Usage</h3>
-                    <div class="gauge" id="ramGaugeContainer">
-                        <canvas id="ramGauge"></canvas>
-                        <div class="gauge-value" id="ramValue">--%</div>
-                    </div>
-                    <div class="gauge-detail" id="ramDetail">-- GB / -- GB</div>
-                </div>
-                <div class="gauge-wrapper">
-                    <h3>Disk Usage (/)</h3>
-                    <div class="gauge" id="diskGaugeContainer">
-                        <canvas id="diskGauge"></canvas>
-                        <div class="gauge-value" id="diskValue">--%</div>
-                    </div>
-                    <div class="gauge-detail" id="diskDetail">-- GB / -- GB</div>
-                </div>
-            </div>
-            <div class="current-timestamp">Last updated: <span id="lastUpdated">Never</span></div>
-        </div>
-
-        <div id="historical" class="tab-content">
-            <h2>Historical System Usage (Last ~24 Hours)</h2>
-            <div class="chart-container">
-                <canvas id="historicalCpuChart"></canvas>
-            </div>
-            <div class="chart-container">
-                <canvas id="historicalRamChart"></canvas>
-            </div>
-            <div class="chart-container">
-                <canvas id="historicalDiskChart"></canvas>
-            </div>
-        </div>
-        <div id="remote" class="tab-content">
-            <h2>Remote Server Stats</h2>
+        <!-- Server List View -->
+        <div id="serverListView" class="view active">
+            <h2>Monitored Servers</h2>
             <div class="table-container">
                 <table id="remoteServersTable">
                     <thead>
                         <tr>
-                            <th>Server Name</th>
+                            <th>Name</th>
                             <th>Host</th>
                             <th>Status</th>
-                            <th>CPU Cores</th>
-                            <th>CPU Model</th>
-                            <th>RAM Usage (GB)</th>
-                            <th>Disk Usage (GB)</th>
-                            <th>CPU %</th>   <!-- Separate CPU % Column -->
-                            <th>RAM %</th>   <!-- Separate RAM % Column -->
-                            <th>Disk %</th>  <!-- Separate Disk % Column -->
+                            <th>CPU %</th>
+                            <th>RAM %</th>
+                            <th>Disk %</th>
+                            <!-- Other summary columns if desired, or keep it minimal -->
                         </tr>
                     </thead>
                     <tbody>
-                        <!-- Data will be populated by JavaScript -->
+                        <!-- Server list will be populated by JavaScript -->
                     </tbody>
                 </table>
             </div>
-            <div class="current-timestamp">Last updated: <span id="remoteLastUpdated">Never</span></div>
+            <div class="current-timestamp">Server list last updated: <span id="serverListLastUpdated">Never</span></div>
+        </div>
+
+        <!-- Server Detail View (Initially Hidden) -->
+        <div id="serverDetailView" class="view">
+            <button id="backToServerListButton">← Back to Server List</button>
+            <h2 id="selectedServerName">Server Details</h2>
+
+            <div class="detail-tabs">
+                <button class="detail-tab-button active" data-tab="detail-current">Current Data</button>
+                <button class="detail-tab-button" data-tab="detail-historical">Historical Data</button>
+            </div>
+
+            <div id="detail-current" class="detail-tab-content active">
+                <h3>Current System Usage</h3>
+                <div class="gauges-container">
+                    <div class="gauge-wrapper">
+                        <h4>CPU Usage</h4>
+                        <div class="gauge" id="detailCpuGaugeContainer">
+                            <canvas id="detailCpuGauge"></canvas>
+                            <div class="gauge-value" id="detailCpuValue">--%</div>
+                        </div>
+                        <div class="gauge-detail" id="detailCpuInfo">Cores: --, Model: --</div>
+                    </div>
+                    <div class="gauge-wrapper">
+                        <h4>RAM Usage</h4>
+                        <div class="gauge" id="detailRamGaugeContainer">
+                            <canvas id="detailRamGauge"></canvas>
+                            <div class="gauge-value" id="detailRamValue">--%</div>
+                        </div>
+                        <div class="gauge-detail" id="detailRamInfo">-- GB / -- GB</div>
+                    </div>
+                    <div class="gauge-wrapper">
+                        <h4>Disk Usage (<span id="detailDiskPath">/</span>)</h4>
+                        <div class="gauge" id="detailDiskGaugeContainer">
+                            <canvas id="detailDiskGauge"></canvas>
+                            <div class="gauge-value" id="detailDiskValue">--%</div>
+                        </div>
+                        <div class="gauge-detail" id="detailDiskInfo">-- GB / -- GB</div>
+                    </div>
+                </div>
+                <div class="current-timestamp">Last updated: <span id="detailLastUpdated">Never</span></div>
+            </div>
+
+            <div id="detail-historical" class="detail-tab-content">
+                <h3>Historical System Usage</h3>
+                <div id="detailHistoricalChartContainer">
+                    <!-- Historical charts will be injected here or a message -->
+                    <p id="historicalDataMessage">Loading historical data...</p>
+                    <div class="chart-container" style="display:none;"> <canvas id="detailHistoricalCpuChart"></canvas> </div>
+                    <div class="chart-container" style="display:none;"> <canvas id="detailHistoricalRamChart"></canvas> </div>
+                    <div class="chart-container" style="display:none;"> <canvas id="detailHistoricalDiskChart"></canvas> </div>
+                </div>
+            </div>
         </div>
     </main>
 

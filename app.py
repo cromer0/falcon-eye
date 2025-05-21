@@ -127,6 +127,7 @@ def get_remote_server_stats(target_server_config, all_server_configs_map):
 
     base_result = {
         'name': name, 'host': target_server_config['host'], 'status': 'offline',
+        'is_local': target_server_config.get('is_local', False),
         'cpu_percent': 0.0, 'cpu_cores': 0, 'cpu_model': "N/A",
         'ram_percent': 0.0, 'ram_total_gb': 0.0, 'ram_used_gb': 0.0,
         'disk_percent': 0.0, 'disk_total_gb': 0.0, 'disk_used_gb': 0.0,
@@ -285,18 +286,18 @@ printf "%s{delimiter}%s{delimiter}%s{delimiter}%s{delimiter}%s" \
     if base_result['error_message'] and base_result['status'] == 'error':
         print(f"FINAL Error for {name} ({target_server_config['host']}): {base_result['error_message']}")
     # print(f"FINAL base_result for {name}: {base_result}")
+
     return base_result
 
 
 def parse_remote_server_configs():
-    """Parses server configurations from .env and stores them with their original index as key."""
-    servers_map = {} # Use a map: index_str -> config
+    servers_map = {}
     i = 1
     while True:
         host_var = f'REMOTE_SERVER_{i}_HOST'
         if os.getenv(host_var):
             server_conf = {
-                'original_index': i, # Store original index for reference
+                'original_index': i,
                 'name': os.getenv(f'REMOTE_SERVER_{i}_NAME', os.getenv(host_var)),
                 'host': os.getenv(host_var),
                 'port': os.getenv(f'REMOTE_SERVER_{i}_PORT', '22'),
@@ -305,21 +306,21 @@ def parse_remote_server_configs():
                 'key_path': os.getenv(f'REMOTE_SERVER_{i}_KEY_PATH'),
                 'key_passphrase': os.getenv(f'REMOTE_SERVER_{i}_KEY_PASSPHRASE'),
                 'disk_path': os.getenv(f'REMOTE_SERVER_{i}_DISK_PATH', '/'),
-                'jump_server_index': os.getenv(f'REMOTE_SERVER_{i}_JUMP_SERVER') # String or None
+                'jump_server_index': os.getenv(f'REMOTE_SERVER_{i}_JUMP_SERVER'),
+                'is_local': os.getenv(f'REMOTE_SERVER_{i}_IS_LOCAL', 'false').lower() == 'true' # New flag
             }
-
-            # Basic validation
             if not server_conf['user']:
                 print(f"Warning: REMOTE_SERVER_{i}_USER not set. Skipping server {server_conf['name']}.")
-            elif not server_conf['password'] and not server_conf['key_path']:
+            elif not server_conf['password'] and not server_conf['key_path'] and server_conf['host'] not in ['localhost', '127.0.0.1']: # Allow no auth for true local if desired and handled
+                # For true local (localhost), psutil could be used directly if we adapt get_remote_server_stats
+                # For now, it will try SSH even for local unless 'is_local' is used to bypass SSH
                 print(f"Warning: Neither PASSWORD nor KEY_PATH set for REMOTE_SERVER_{i}. Skipping server {server_conf['name']}.")
             else:
-                servers_map[str(i)] = server_conf # Store with string index '1', '2', etc.
+                servers_map[str(i)] = server_conf
             i += 1
         else:
             break
     return servers_map
-
 
 # --- Flask Routes ---
 @app.route('/')
