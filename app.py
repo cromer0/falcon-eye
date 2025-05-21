@@ -10,13 +10,40 @@ import paramiko
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor
+import psycopg2
+import psycopg2.extras # For dictionary cursor
 
 # --- Configuration ---
 load_dotenv()
-DATABASE_PATH = os.path.join('data', 'sys_stats.db')
-HISTORICAL_DATA_COLLECTION_INTERVAL = 60
+DATABASE_PATH = os.path.join('data', 'sys_stats.db') # Relevant for SQLite
+DATABASE_TYPE = os.getenv('DATABASE_TYPE', 'sqlite').lower()
+
+# PostgreSQL specific (if DATABASE_TYPE is 'postgresql')
+POSTGRES_HOST = os.getenv('POSTGRES_HOST')
+POSTGRES_PORT = os.getenv('POSTGRES_PORT', '5432')
+POSTGRES_USER = os.getenv('POSTGRES_USER')
+POSTGRES_PASSWORD = os.getenv('POSTGRES_PASSWORD')
+POSTGRES_DBNAME = os.getenv('POSTGRES_DBNAME')
+
+HISTORICAL_DATA_COLLECTION_INTERVAL = 60  # Default value
+DATA_GATHERING_INTERVAL_SECONDS_ENV_VAR = 'DATA_GATHERING_INTERVAL_SECONDS'
 MAX_HISTORICAL_ENTRIES = 1440
 SSH_TIMEOUT = 25
+
+# Determine the actual collection interval
+current_collection_interval = HISTORICAL_DATA_COLLECTION_INTERVAL
+data_gathering_interval_str = os.getenv(DATA_GATHERING_INTERVAL_SECONDS_ENV_VAR)
+if data_gathering_interval_str:
+    try:
+        interval_seconds = int(data_gathering_interval_str)
+        if interval_seconds > 0:
+            current_collection_interval = interval_seconds
+            print(f"Using custom data gathering interval: {current_collection_interval} seconds.")
+        else:
+            print(f"Warning: {DATA_GATHERING_INTERVAL_SECONDS_ENV_VAR} ('{data_gathering_interval_str}') must be a positive integer. Using default: {current_collection_interval}s.")
+    except ValueError:
+        print(f"Warning: Invalid value for {DATA_GATHERING_INTERVAL_SECONDS_ENV_VAR} ('{data_gathering_interval_str}'). Expected an integer. Using default: {current_collection_interval}s.")
+
 DETAIL_VIEW_REFRESH_INTERVAL_MS_ENV_VAR = 'DETAIL_VIEW_REFRESH_INTERVAL_MS'
 DEFAULT_DETAIL_VIEW_REFRESH_INTERVAL_MS = 3000
 SERVER_LIST_REFRESH_INTERVAL_MS_ENV_VAR = 'SERVER_LIST_REFRESH_INTERVAL_MS'
@@ -24,39 +51,132 @@ DEFAULT_SERVER_LIST_REFRESH_INTERVAL_MS = 15000
 
 app = Flask(__name__)
 
+# --- Database Connection Helper ---
+def get_db_connection():
+    """
+    Establishes a database connection based on DATABASE_TYPE.
+    Returns a connection object and a cursor.
+    The caller is responsible for closing the connection.
+    """
+    if DATABASE_TYPE == 'sqlite':
+        os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
+        conn = sqlite3.connect(DATABASE_PATH)
+        # For SQLite, the default cursor is fine.
+        # For consistency in return type, we can return conn.cursor()
+        # but often it's created just before use.
+        return conn, conn.cursor()
+    elif DATABASE_TYPE == 'postgresql':
+        if not all([POSTGRES_HOST, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DBNAME]):
+            raise ValueError("Missing PostgreSQL connection details in environment variables.")
+        conn = psycopg2.connect(
+            host=POSTGRES_HOST,
+            port=POSTGRES_PORT,
+            user=POSTGRES_USER,
+            password=POSTGRES_PASSWORD,
+            dbname=POSTGRES_DBNAME
+        )
+        # Using DictCursor for easier column access by name
+        return conn, conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    else:
+        raise ValueError(f"Unsupported DATABASE_TYPE: {DATABASE_TYPE}")
+
 # --- Database Setup & Local Stats ---
 def init_db():
-    os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS stats (
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            cpu_percent REAL,
-            ram_percent REAL,
-            disk_percent REAL
-        )
-    ''')
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON stats (timestamp);")
-    conn.commit()
-    conn.close()
+    """Initializes the database schema based on DATABASE_TYPE."""
+    try:
+        conn, cursor = get_db_connection()
+        if DATABASE_TYPE == 'sqlite':
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS stats (
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    server_name TEXT NOT NULL DEFAULT 'local',
+                    cpu_percent REAL,
+                    ram_percent REAL,
+                    disk_percent REAL
+                )
+            ''')
+            # Index for faster queries, especially for historical data retrieval and pruning
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_server_timestamp ON stats (server_name, timestamp);")
+        elif DATABASE_TYPE == 'postgresql':
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS stats (
+                    timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    server_name TEXT NOT NULL,
+                    cpu_percent REAL,
+                    ram_percent REAL,
+                    disk_percent REAL
+                )
+            ''')
+            # Index for faster queries on server_name and timestamp
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_server_timestamp ON stats (server_name, timestamp);")
+        
+        conn.commit()
+    except Exception as e:
+        print(f"Error during database initialization: {e}")
+        # Depending on the error, you might want to raise it or handle it differently
+    finally:
+        if 'conn' in locals() and conn:
+            cursor.close()
+            conn.close()
 
-def store_stats(cpu, ram, disk):
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO stats (cpu_percent, ram_percent, disk_percent) VALUES (?, ?, ?)",
-                   (cpu, ram, disk))
-    cursor.execute(f'''
-        DELETE FROM stats
-        WHERE timestamp NOT IN (
-            SELECT timestamp
-            FROM stats
-            ORDER BY timestamp DESC
-            LIMIT {MAX_HISTORICAL_ENTRIES}
-        )
-    ''')
-    conn.commit()
-    conn.close()
+def store_stats(server_name, cpu, ram, disk):
+    """Stores system stats into the configured database, including server_name."""
+    try:
+        conn, cursor = get_db_connection()
+
+        if DATABASE_TYPE == 'sqlite':
+            cursor.execute("INSERT INTO stats (server_name, cpu_percent, ram_percent, disk_percent) VALUES (?, ?, ?, ?)",
+                           (server_name, cpu, ram, disk))
+            # Prune old entries for the specific server
+            cursor.execute(f'''
+                DELETE FROM stats
+                WHERE server_name = ? AND timestamp NOT IN (
+                    SELECT timestamp
+                    FROM stats
+                    WHERE server_name = ?
+                    ORDER BY timestamp DESC
+                    LIMIT {MAX_HISTORICAL_ENTRIES}
+                )
+            ''', (server_name, server_name))
+        elif DATABASE_TYPE == 'postgresql':
+            cursor.execute("INSERT INTO stats (server_name, cpu_percent, ram_percent, disk_percent) VALUES (%s, %s, %s, %s)",
+                           (server_name, cpu, ram, disk))
+            # Prune old entries for the specific server
+            # Using a simpler approach similar to SQLite for now, adjust if performance issues arise
+            # Note: For very large tables, the subquery with ROW_NUMBER() might be more performant.
+            # However, the LIMIT clause in a subquery for NOT IN might not be directly supported or efficient
+            # in all PostgreSQL versions in the exact same way as SQLite.
+            # A common and effective way for PostgreSQL:
+            cursor.execute(f'''
+                DELETE FROM stats
+                WHERE ctid IN (
+                    SELECT ctid
+                    FROM (
+                        SELECT ctid, ROW_NUMBER() OVER (PARTITION BY server_name ORDER BY timestamp DESC) as rn
+                        FROM stats
+                        WHERE server_name = %s
+                    ) s
+                    WHERE rn > %s
+                )
+            ''', (server_name, MAX_HISTORICAL_ENTRIES))
+            # Alternative PostgreSQL pruning (closer to SQLite's, but check performance on large datasets):
+            # cursor.execute(f'''
+            #     DELETE FROM stats
+            #     WHERE server_name = %s AND timestamp NOT IN (
+            #         SELECT timestamp
+            #         FROM stats
+            #         WHERE server_name = %s
+            #         ORDER BY timestamp DESC
+            #         LIMIT %s
+            #     )
+            # ''', (server_name, server_name, MAX_HISTORICAL_ENTRIES))
+        conn.commit()
+    except Exception as e:
+        print(f"Error in store_stats for server '{server_name}': {e}")
+    finally:
+        if 'conn' in locals() and conn:
+            cursor.close()
+            conn.close()
 
 def get_current_stats():
     cpu_percent = psutil.cpu_percent(interval=0.1)
@@ -86,13 +206,67 @@ def get_current_stats():
 
 def historical_data_collector():
     print("Starting historical data collection thread...")
+    # Fetch server configurations once, assuming they don't change at runtime.
+    # If they can change, this should be moved inside the loop.
+    try:
+        server_configs_map = parse_remote_server_configs()
+        print(f"Historical data collector initialized with {len(server_configs_map)} remote server(s).")
+    except Exception as e:
+        print(f"CRITICAL: Could not parse server configurations for historical data collector: {e}")
+        print("Historical data collector will only collect local stats.")
+        server_configs_map = {} # Ensure it's a dict
+
     while True:
         try:
-            stats = get_current_stats()
-            store_stats(stats['cpu_percent'], stats['ram_percent'], stats['disk_percent'])
-        except Exception as e:
-            print(f"Error in historical_data_collector: {e}")
-        time.sleep(HISTORICAL_DATA_COLLECTION_INTERVAL)
+            # 1. Collect and store local server stats
+            try:
+                local_stats = get_current_stats()
+                # Using 'local' as the server_name for the machine running this app.
+                # This aligns with the previous setup and PostgreSQL's NOT NULL constraint.
+                store_stats('local', local_stats['cpu_percent'], local_stats['ram_percent'], local_stats['disk_percent'])
+                # print("Successfully stored local server stats.")
+            except Exception as e_local:
+                print(f"Error collecting or storing local server stats: {e_local}")
+
+            # 2. Collect and store remote server stats
+            # The server_configs_map is a dictionary where keys are original indices (e.g., "1", "2")
+            # and values are the server configuration dictionaries.
+            for server_index, remote_server_config in server_configs_map.items():
+                server_display_name = remote_server_config.get('name', remote_server_config.get('host', f"ServerIndex_{server_index}"))
+                try:
+                    # Skip collection for servers marked as 'is_local: true' in config,
+                    # as their stats are (or should be) collected by the local collector above.
+                    # This check helps avoid redundant SSH to localhost if it's also in remote configs.
+                    if remote_server_config.get('is_local', False):
+                        # print(f"Skipping historical data collection for '{server_display_name}' as it's marked local.")
+                        continue
+
+                    # print(f"Fetching historical stats for remote server: {server_display_name} ({remote_server_config['host']})")
+                    # Pass the full map for jump server resolution if needed.
+                    remote_stats = get_remote_server_stats(remote_server_config, server_configs_map)
+
+                    if remote_stats and remote_stats.get('status') == 'online':
+                        store_stats(
+                            remote_stats['name'], # Use the name from the stats result (which is derived from config)
+                            remote_stats['cpu_percent'],
+                            remote_stats['ram_percent'],
+                            remote_stats['disk_percent']
+                        )
+                        # print(f"Successfully stored historical stats for {remote_stats['name']}.")
+                    else:
+                        error_msg = remote_stats.get('error_message', 'Unknown error')
+                        print(f"Error collecting historical data for {server_display_name}: {error_msg}")
+                except Exception as e_remote:
+                    print(f"Unhandled exception while processing remote server {server_display_name}: {e_remote}")
+        
+        except Exception as e_main_loop:
+            # This is a catch-all for unexpected errors in the main loop itself (e.g., issues with server_configs_map iteration)
+            print(f"Critical error in historical_data_collector main loop: {e_main_loop}")
+            # Potentially add a short sleep here to prevent rapid-fire logging if the error is persistent.
+            time.sleep(10) 
+
+        # Sleep at the end of processing all servers for this interval
+        time.sleep(current_collection_interval)
 
 
 # --- Remote Server Stat Collection ---
@@ -360,19 +534,65 @@ def api_current_stats(): return jsonify(get_current_stats())
 
 @app.route('/api/historical_stats')
 def api_historical_stats():
-    conn = sqlite3.connect(DATABASE_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT timestamp, cpu_percent, ram_percent, disk_percent FROM stats ORDER BY timestamp ASC")
-    rows = cursor.fetchall()
-    conn.close()
-    data = {
-        'labels': [row['timestamp'] for row in rows],
-        'cpu_data': [row['cpu_percent'] for row in rows],
-        'ram_data': [row['ram_percent'] for row in rows],
-        'disk_data': [row['disk_percent'] for row in rows]
-    }
-    return jsonify(data)
+    requested_server_name = request.args.get('server_name')
+    
+    # Default to 'local' if no server_name is provided or if it's an empty string
+    target_server_name = requested_server_name if requested_server_name else 'local'
+
+    try:
+        conn, cursor = get_db_connection()
+        
+        query_sql = ""
+        query_params = (target_server_name,)
+
+        if DATABASE_TYPE == 'sqlite':
+            conn.row_factory = sqlite3.Row 
+            cursor = conn.cursor() 
+            query_sql = "SELECT timestamp, cpu_percent, ram_percent, disk_percent FROM stats WHERE server_name = ? ORDER BY timestamp ASC"
+        elif DATABASE_TYPE == 'postgresql':
+            # DictCursor is already set by get_db_connection for postgresql
+            query_sql = "SELECT timestamp, cpu_percent, ram_percent, disk_percent FROM stats WHERE server_name = %s ORDER BY timestamp ASC"
+        else:
+            return jsonify({"error": "Database type not configured correctly for historical stats"}), 500
+
+        cursor.execute(query_sql, query_params)
+        rows = cursor.fetchall()
+        
+        # Prepare data structure for JSON response
+        data = {
+            'server_name': target_server_name, # Include the server name in the response
+            'labels': [],
+            'cpu_data': [],
+            'ram_data': [],
+            'disk_data': []
+        }
+
+        if DATABASE_TYPE == 'sqlite':
+            for row in rows:
+                data['labels'].append(row['timestamp']) # Already string or suitable format
+                data['cpu_data'].append(row['cpu_percent'])
+                data['ram_data'].append(row['ram_percent'])
+                data['disk_data'].append(row['disk_percent'])
+        elif DATABASE_TYPE == 'postgresql':
+            for row in rows:
+                data['labels'].append(row['timestamp'].isoformat()) # Ensure datetime is JSON serializable
+                data['cpu_data'].append(row['cpu_percent'])
+                data['ram_data'].append(row['ram_percent'])
+                data['disk_data'].append(row['disk_percent'])
+        
+        return jsonify(data)
+        
+    except Exception as e:
+        print(f"Error in api_historical_stats for server '{target_server_name}': {e}")
+        # import traceback
+        # traceback.print_exc() # For more detailed debugging if needed
+        return jsonify({"error": str(e), "server_name": target_server_name}), 500
+    finally:
+        if 'conn' in locals() and conn:
+            if 'cursor' in locals() and cursor:
+                cursor.close()
+            conn.close()
+
 
 @app.route('/api/remote_servers_stats')
 def api_remote_servers_stats():
