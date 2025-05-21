@@ -94,6 +94,11 @@
         </div>
     </main>
 
+    <script>
+        window.APP_CONFIG = {
+            detailViewRefreshInterval: {{ detail_refresh_interval | int }}
+        };
+    </script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>

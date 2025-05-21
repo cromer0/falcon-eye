@@ -17,6 +17,8 @@ DATABASE_PATH = os.path.join('data', 'sys_stats.db')
 HISTORICAL_DATA_COLLECTION_INTERVAL = 60
 MAX_HISTORICAL_ENTRIES = 1440
 SSH_TIMEOUT = 25
+DETAIL_VIEW_REFRESH_INTERVAL_MS_ENV_VAR = 'DETAIL_VIEW_REFRESH_INTERVAL_MS'
+DEFAULT_DETAIL_VIEW_REFRESH_INTERVAL_MS = 3000
 
 app = Flask(__name__)
 
@@ -324,7 +326,19 @@ def parse_remote_server_configs():
 
 # --- Flask Routes ---
 @app.route('/')
-def index(): return render_template('index.html')
+def index():
+    detail_refresh_interval_str = os.getenv(DETAIL_VIEW_REFRESH_INTERVAL_MS_ENV_VAR)
+    detail_refresh_interval = DEFAULT_DETAIL_VIEW_REFRESH_INTERVAL_MS
+    if detail_refresh_interval_str:
+        try:
+            interval = int(detail_refresh_interval_str)
+            if interval > 0:
+                detail_refresh_interval = interval
+            else:
+                print(f"Warning: {DETAIL_VIEW_REFRESH_INTERVAL_MS_ENV_VAR} is not a positive integer ('{detail_refresh_interval_str}'). Using default: {DEFAULT_DETAIL_VIEW_REFRESH_INTERVAL_MS}ms.")
+        except ValueError:
+            print(f"Warning: Invalid value for {DETAIL_VIEW_REFRESH_INTERVAL_MS_ENV_VAR} ('{detail_refresh_interval_str}'). Expected an integer. Using default: {DEFAULT_DETAIL_VIEW_REFRESH_INTERVAL_MS}ms.")
+    return render_template('index.html', detail_refresh_interval=detail_refresh_interval)
 
 @app.route('/api/current_stats')
 def api_current_stats(): return jsonify(get_current_stats())

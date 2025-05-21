@@ -42,7 +42,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Config ---
     const SERVER_LIST_REFRESH_INTERVAL = 15000; // ms
-    const DETAIL_VIEW_REFRESH_INTERVAL = 3000; // ms for current stats in detail view
+    // Use interval from Flask, with a fallback to 3000ms
+    const DETAIL_VIEW_REFRESH_INTERVAL = window.APP_CONFIG && window.APP_CONFIG.detailViewRefreshInterval ? window.APP_CONFIG.detailViewRefreshInterval : 3000;
 
     // --- Helper ---
     const getCssVariable = (variable) => getComputedStyle(document.documentElement).getPropertyValue(variable).trim();
