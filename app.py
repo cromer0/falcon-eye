@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 import psutil
 import sqlite3
 import threading
@@ -361,17 +361,36 @@ def api_historical_stats():
 
 @app.route('/api/remote_servers_stats')
 def api_remote_servers_stats():
-    # `server_configs_map` is a dict: {'1': config1, '2': config2}
+    requested_host = request.args.get('host')
     server_configs_map = parse_remote_server_configs()
     all_stats = []
+    configs_to_process = []
 
-    # Convert map values to a list of configs to iterate for thread pool
-    configs_to_process = list(server_configs_map.values())
+    if requested_host:
+        found_config = None
+        for config in server_configs_map.values():
+            if config['host'] == requested_host:
+                found_config = config
+                break
+        if found_config:
+            configs_to_process.append(found_config)
+        else:
+            # If a specific host is requested but not found, return an empty list.
+            return jsonify([])
+    else:
+        # If no specific host is requested, process all servers.
+        configs_to_process = list(server_configs_map.values())
 
     if not configs_to_process:
         return jsonify([])
 
-    with ThreadPoolExecutor(max_workers=len(configs_to_process)) as executor:
+    # Adjust max_workers; if only one server, no need for many workers.
+    # Using min to handle cases where len(configs_to_process) is small.
+    # For a single server, max_workers will be 1.
+    # For multiple servers, it will be the number of servers.
+    max_workers = min(len(configs_to_process), os.cpu_count() or 1) # Ensure at least 1 worker
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Pass the full map to each worker so it can look up its jump server if needed
         future_to_config = {
             executor.submit(get_remote_server_stats, config, server_configs_map): config
