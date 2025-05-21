@@ -19,6 +19,8 @@ MAX_HISTORICAL_ENTRIES = 1440
 SSH_TIMEOUT = 25
 DETAIL_VIEW_REFRESH_INTERVAL_MS_ENV_VAR = 'DETAIL_VIEW_REFRESH_INTERVAL_MS'
 DEFAULT_DETAIL_VIEW_REFRESH_INTERVAL_MS = 3000
+SERVER_LIST_REFRESH_INTERVAL_MS_ENV_VAR = 'SERVER_LIST_REFRESH_INTERVAL_MS'
+DEFAULT_SERVER_LIST_REFRESH_INTERVAL_MS = 15000
 
 app = Flask(__name__)
 
@@ -338,7 +340,20 @@ def index():
                 print(f"Warning: {DETAIL_VIEW_REFRESH_INTERVAL_MS_ENV_VAR} is not a positive integer ('{detail_refresh_interval_str}'). Using default: {DEFAULT_DETAIL_VIEW_REFRESH_INTERVAL_MS}ms.")
         except ValueError:
             print(f"Warning: Invalid value for {DETAIL_VIEW_REFRESH_INTERVAL_MS_ENV_VAR} ('{detail_refresh_interval_str}'). Expected an integer. Using default: {DEFAULT_DETAIL_VIEW_REFRESH_INTERVAL_MS}ms.")
-    return render_template('index.html', detail_refresh_interval=detail_refresh_interval)
+
+    server_list_refresh_interval_str = os.getenv(SERVER_LIST_REFRESH_INTERVAL_MS_ENV_VAR)
+    server_list_refresh_interval = DEFAULT_SERVER_LIST_REFRESH_INTERVAL_MS
+    if server_list_refresh_interval_str:
+        try:
+            interval = int(server_list_refresh_interval_str)
+            if interval > 0:
+                server_list_refresh_interval = interval
+            else:
+                print(f"Warning: {SERVER_LIST_REFRESH_INTERVAL_MS_ENV_VAR} is not a positive integer ('{server_list_refresh_interval_str}'). Using default: {DEFAULT_SERVER_LIST_REFRESH_INTERVAL_MS}ms.")
+        except ValueError:
+            print(f"Warning: Invalid value for {SERVER_LIST_REFRESH_INTERVAL_MS_ENV_VAR} ('{server_list_refresh_interval_str}'). Expected an integer. Using default: {DEFAULT_SERVER_LIST_REFRESH_INTERVAL_MS}ms.")
+
+    return render_template('index.html', detail_refresh_interval=detail_refresh_interval, server_list_refresh_interval=server_list_refresh_interval)
 
 @app.route('/api/current_stats')
 def api_current_stats(): return jsonify(get_current_stats())

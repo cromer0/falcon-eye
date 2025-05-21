@@ -41,8 +41,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let detailViewInterval; // For auto-refreshing detail view
 
     // --- Config ---
-    const SERVER_LIST_REFRESH_INTERVAL = 15000; // ms
-    // Use interval from Flask, with a fallback to 3000ms
+    // Use interval from Flask for server list, with a fallback to 15000ms
+    const SERVER_LIST_REFRESH_INTERVAL = window.APP_CONFIG && window.APP_CONFIG.serverListRefreshInterval ? window.APP_CONFIG.serverListRefreshInterval : 15000;
+    // Use interval from Flask for detail view, with a fallback to 3000ms
     const DETAIL_VIEW_REFRESH_INTERVAL = window.APP_CONFIG && window.APP_CONFIG.detailViewRefreshInterval ? window.APP_CONFIG.detailViewRefreshInterval : 3000;
 
     // --- Helper ---
