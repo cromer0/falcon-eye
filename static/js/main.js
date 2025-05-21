@@ -31,6 +31,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const detailHistRamChartEl = document.getElementById('detailHistoricalRamChart').getContext('2d');
     const detailHistDiskChartEl = document.getElementById('detailHistoricalDiskChart').getContext('2d');
 
+    // Alerts View Elements
+    const alertsView = document.getElementById('alertsView');
+    const alertForm = document.getElementById('alertForm');
+    const alertFormTitle = document.getElementById('alertFormTitle');
+    const alertIdStore = document.getElementById('alertIdStore');
+    const alertNameInput = document.getElementById('alertName');
+    const alertServersSelect = document.getElementById('alertServers');
+    const alertResourcesSelect = document.getElementById('alertResources');
+    const alertThresholdInput = document.getElementById('alertThreshold');
+    const alertTimeFrameInput = document.getElementById('alertTimeFrame');
+    const alertChannelSelect = document.getElementById('alertChannel');
+    const alertRecipientsTextarea = document.getElementById('alertRecipients');
+    const alertIsActiveCheckbox = document.getElementById('alertIsActive');
+    const saveAlertButton = document.getElementById('saveAlertButton');
+    const cancelAlertEditButton = document.getElementById('cancelAlertEditButton');
+    const alertsTableBody = document.querySelector('#alertsTable tbody');
+    const navButtons = document.querySelectorAll('.nav-button');
+
 
     // --- State Variables ---
     let detailCpuGaugeChart, detailRamGaugeChart, detailDiskGaugeChart;
@@ -130,19 +148,58 @@ const getChartJsThemeOptions = () => {
 
     // --- View Management ---
     function showView(viewId) {
+        // Hide all views
         document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
-        document.getElementById(viewId)?.classList.add('active');
+        // Show the selected view
+        const
+        activeView = document.getElementById(viewId);
+        if (activeView) {
+            activeView.classList.add('active');
+        }
+
+        // Update nav button states
+        navButtons.forEach(button => {
+            if (button.dataset.view === viewId) {
+                button.classList.add('active');
+            } else {
+                button.classList.remove('active');
+            }
+        });
+
 
         if (viewId === 'serverListView') {
-            if (detailViewInterval) clearInterval(detailViewInterval); // Stop detail refresh
-            selectedServerData = null; // Clear selection
-            destroyDetailHistoricalCharts(); // Clean up detail charts
-        } else if (viewId === 'serverDetailView') {
-            // Start interval for selected server's current stats if not already running
             if (detailViewInterval) clearInterval(detailViewInterval);
-            detailViewInterval = setInterval(updateSelectedServerCurrentData, DETAIL_VIEW_REFRESH_INTERVAL);
+            selectedServerData = null;
+            destroyDetailHistoricalCharts();
+            fetchServerList(); // Refresh server list when switching to this view
+        } else if (viewId === 'serverDetailView') {
+            if (detailViewInterval) clearInterval(detailViewInterval);
+            if (selectedServerData) { // Ensure a server is selected before starting interval
+                 updateSelectedServerCurrentData(); // Initial call
+                 detailViewInterval = setInterval(updateSelectedServerCurrentData, DETAIL_VIEW_REFRESH_INTERVAL);
+            } else {
+                 showView('serverListView'); // Fallback if no server selected
+            }
+        } else if (viewId === 'alertsView') {
+            if (detailViewInterval) clearInterval(detailViewInterval);
+            populateAlertFormServerSelect(); // Populate server list in form
+            fetchAndDisplayAlerts(); // Load existing alerts
+            resetAlertForm(); // Ensure form is clean
         }
     }
+    
+    // Initialize Select2 for multi-select dropdowns
+    // Ensure jQuery is loaded before this if using jQuery-dependent Select2 version
+    // For standalone, ensure script is deferred or run after DOM is ready.
+    // $(document).ready(function() { // If using jQuery
+        if (typeof $ !== 'undefined' && $.fn && $.fn.select2) { // Check if jQuery and Select2 are loaded
+            $('#alertServers').select2({ placeholder: "Select servers", allowClear: true, width: '100%'});
+            $('#alertResources').select2({ placeholder: "Select resources", allowClear: true, width: '100%'});
+        } else {
+            console.warn("Select2 library not loaded or jQuery not available. Multiselects will be standard.");
+        }
+    // });
+
 
     // --- Dark Mode ---
     // ... (Dark mode logic - same as before, but ensure applyThemeToVisuals is adapted) ...
@@ -185,46 +242,59 @@ const getChartJsThemeOptions = () => {
     // --- Server List Logic ---
     function fetchServerList() {
         fetch('/api/remote_servers_stats')
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                return response.json();
+            })
             .then(servers => {
                 allServersData = servers; // Cache the full data
-                remoteServersTableBody.innerHTML = '';
-                servers.forEach(server => {
-                    const row = remoteServersTableBody.insertRow();
-                    row.insertCell().textContent = server.name;
-                    row.insertCell().textContent = server.host;
+                if (remoteServersTableBody) {
+                    remoteServersTableBody.innerHTML = ''; // Clear existing rows
+                    if (servers && servers.length > 0) {
+                        servers.forEach(server => {
+                            const row = remoteServersTableBody.insertRow();
+                            row.insertCell().textContent = server.name;
+                            row.insertCell().textContent = server.host;
 
-                    const statusSpan = document.createElement('span');
-                    statusSpan.textContent = server.status.charAt(0).toUpperCase() + server.status.slice(1);
-                    statusSpan.className = `status-${server.status}`;
-                    if (server.error_message) statusSpan.title = server.error_message;
-                    row.insertCell().appendChild(statusSpan);
+                            const statusSpan = document.createElement('span');
+                            statusSpan.textContent = server.status.charAt(0).toUpperCase() + server.status.slice(1);
+                            statusSpan.className = `status-${server.status}`;
+                            if (server.error_message) statusSpan.title = server.error_message;
+                            row.insertCell().appendChild(statusSpan);
 
-                    // Summary progress bars in the list view
-                    const cpuCell = row.insertCell();
-                    const ramCell = row.insertCell();
-                    const diskCell = row.insertCell();
+                            const cpuCell = row.insertCell();
+                            const ramCell = row.insertCell();
+                            const diskCell = row.insertCell();
 
-                    if (server.status === 'online') {
-                        cpuCell.appendChild(createProgressBar(server.cpu_percent, 'CPU')); // createProgressBar needs to be defined
-                        ramCell.appendChild(createProgressBar(server.ram_percent, 'RAM'));
-                        diskCell.appendChild(createProgressBar(server.disk_percent, 'Disk'));
+                            if (server.status === 'online') {
+                                cpuCell.appendChild(createProgressBar(server.cpu_percent, 'CPU'));
+                                ramCell.appendChild(createProgressBar(server.ram_percent, 'RAM'));
+                                diskCell.appendChild(createProgressBar(server.disk_percent, 'Disk'));
+                            } else {
+                                ['N/A','N/A','N/A'].forEach((text, i) => [cpuCell,ramCell,diskCell][i].textContent = text);
+                            }
+
+                            row.dataset.serverHost = server.host;
+                            row.dataset.serverName = server.name;
+                            row.addEventListener('click', () => handleServerSelect(server.host));
+                        });
                     } else {
-                        cpuCell.textContent = 'N/A'; ramCell.textContent = 'N/A'; diskCell.textContent = 'N/A';
+                         remoteServersTableBody.innerHTML = `<tr><td colspan="6">No servers configured or available.</td></tr>`;
                     }
-
-                    row.dataset.serverHost = server.host; // Store unique ID for click handling
-                    row.dataset.serverName = server.name; // Store name for click handling
-                    row.addEventListener('click', () => handleServerSelect(server.host));
-                });
+                }
                 if (serverListLastUpdatedSpan) serverListLastUpdatedSpan.textContent = new Date().toLocaleTimeString();
+                
+                // If alerts view is active, update its server list too (or do it on view switch)
+                if (alertsView && alertsView.classList.contains('active')) {
+                    populateAlertFormServerSelect();
+                }
             })
             .catch(error => {
                 console.error('Error fetching server list:', error);
-                if (remoteServersTableBody) remoteServersTableBody.innerHTML = `<tr><td colspan="6">Error loading server data.</td></tr>`;
+                if (remoteServersTableBody) remoteServersTableBody.innerHTML = `<tr><td colspan="6">Error loading server data. ${error.message}</td></tr>`;
             });
     }
-    // ProgressBar for list view (same as detail view's createProgressBar)
+    // ProgressBar for list view
     const createProgressBar = (percentage, type) => { /* ... same logic as createDetailProgressBar from previous answers ... */
         const container = document.createElement('div');
         container.className = 'progress-bar-container';
@@ -315,60 +385,271 @@ const getChartJsThemeOptions = () => {
 
 
     function handleHistoricalTabForSelectedServer() {
-        destroyDetailHistoricalCharts(); // Clear previous
+        destroyDetailHistoricalCharts(); // Clear previous charts and hide containers
         document.querySelectorAll('#detailHistoricalChartContainer .chart-container').forEach(c => c.style.display = 'none');
+        historicalDataMessageEl.style.display = 'block'; // Show message area by default
 
-
-        if (selectedServerData && selectedServerData.is_local) {
-            historicalDataMessageEl.textContent = "Loading historical data...";
-            historicalDataMessageEl.style.display = 'block';
-            fetch('/api/historical_stats') // This endpoint is for the *local* server's DB
-                .then(response => response.json())
-                .then(data => {
-                    if (data.labels && data.labels.length > 0) {
-                        historicalDataMessageEl.style.display = 'none';
-                        document.querySelectorAll('#detailHistoricalChartContainer .chart-container').forEach(c => c.style.display = 'block');
-
-                        detailHistoricalCpuChart = createDetailHistoricalChart(detailHistCpuChartEl, 'CPU Usage', { labels: data.labels, values: data.cpu_data }, getCssVariable('--chart-line-cpu'));
-                        detailHistoricalRamChart = createDetailHistoricalChart(detailHistRamChartEl, 'RAM Usage', { labels: data.labels, values: data.ram_data }, getCssVariable('--chart-line-ram'));
-                        detailHistoricalDiskChart = createDetailHistoricalChart(detailHistDiskChartEl, 'Disk Usage', { labels: data.labels, values: data.disk_data }, getCssVariable('--chart-line-disk'));
-                        historicalChartsInitializedForDetail = true;
-                        applyThemeToVisuals(); // Apply theme after creation
-                    } else {
-                        historicalDataMessageEl.textContent = "No historical data available for this server.";
-                    }
-                })
-                .catch(error => {
-                    console.error("Error fetching historical data:", error);
-                    historicalDataMessageEl.textContent = "Error loading historical data.";
-                });
-        } else {
-            historicalDataMessageEl.textContent = "Historical data is only available for the local server instance defined in the configuration.";
-            historicalDataMessageEl.style.display = 'block';
+        if (!selectedServerData || !selectedServerData.host) {
+            historicalDataMessageEl.textContent = "No server selected or server host is missing.";
+            return;
         }
+
+        historicalDataMessageEl.textContent = "Loading historical data...";
+        const apiUrl = `/api/historical_stats?server_host=${selectedServerData.host}`;
+
+        fetch(apiUrl)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Network response was not ok: ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data && data.labels && data.labels.length > 0) {
+                    historicalDataMessageEl.style.display = 'none'; // Hide message element
+                    document.querySelectorAll('#detailHistoricalChartContainer .chart-container').forEach(c => c.style.display = 'block'); // Show chart containers
+
+                    detailHistoricalCpuChart = createDetailHistoricalChart(detailHistCpuChartEl, 'CPU Usage', { labels: data.labels, values: data.cpu_data }, getCssVariable('--chart-line-cpu'));
+                    detailHistoricalRamChart = createDetailHistoricalChart(detailHistRamChartEl, 'RAM Usage', { labels: data.labels, values: data.ram_data }, getCssVariable('--chart-line-ram'));
+                    detailHistoricalDiskChart = createDetailHistoricalChart(detailHistDiskChartEl, 'Disk Usage', { labels: data.labels, values: data.disk_data }, getCssVariable('--chart-line-disk'));
+                    
+                    historicalChartsInitializedForDetail = true;
+                    applyThemeToVisuals(); // Apply theme after creation
+                } else {
+                    historicalDataMessageEl.textContent = "No historical data available for this server.";
+                    // Ensure charts are hidden if they were somehow made visible before this check
+                    document.querySelectorAll('#detailHistoricalChartContainer .chart-container').forEach(c => c.style.display = 'none');
+                }
+            })
+            .catch(error => {
+                console.error(`Error fetching historical data for ${selectedServerData.host}:`, error);
+                historicalDataMessageEl.textContent = "Error loading historical data. Check console for details.";
+                document.querySelectorAll('#detailHistoricalChartContainer .chart-container').forEach(c => c.style.display = 'none');
+            });
     }
 
     // Detail View Tab Switcher
-    detailTabButtons.forEach(button => {
-        button.addEventListener('click', () => {
-            detailTabButtons.forEach(btn => btn.classList.remove('active'));
-            button.classList.add('active');
-            const tabId = button.getAttribute('data-tab');
-            detailTabContents.forEach(content => content.classList.remove('active'));
-            document.getElementById(tabId).classList.add('active');
+    if (detailTabButtons) {
+        detailTabButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                detailTabButtons.forEach(btn => btn.classList.remove('active'));
+                button.classList.add('active');
+                const tabId = button.getAttribute('data-tab');
+                detailTabContents.forEach(content => content.classList.remove('active'));
+                document.getElementById(tabId).classList.add('active');
 
-            if (tabId === 'detail-historical') {
-                handleHistoricalTabForSelectedServer(); // Re-check/re-load if historical tab is clicked
-            }
+                if (tabId === 'detail-historical') {
+                    handleHistoricalTabForSelectedServer();
+                }
+            });
         });
-    });
+    }
 
-    backToServerListButton.addEventListener('click', () => showView('serverListView'));
+    if (backToServerListButton) {
+        backToServerListButton.addEventListener('click', () => showView('serverListView'));
+    }
+
+    // --- Alerts Management Logic ---
+    function populateAlertFormServerSelect() {
+        if (!alertServersSelect) return;
+        const currentSelection = $(alertServersSelect).val(); // Preserve selection if using Select2
+        
+        alertServersSelect.innerHTML = ''; // Clear existing
+        if (allServersData && allServersData.length > 0) {
+            allServersData.forEach(server => {
+                if (server.host) { // Ensure host is valid
+                    const option = new Option(`${server.name} (${server.host})`, server.host);
+                    alertServersSelect.add(option);
+                }
+            });
+        } else {
+            alertServersSelect.innerHTML = '<option value="" disabled>No servers available</option>';
+        }
+        if (typeof $ !== 'undefined' && $.fn && $.fn.select2) $(alertServersSelect).val(currentSelection).trigger('change'); // Restore selection for Select2
+    }
+
+    function resetAlertForm() {
+        if (!alertForm) return;
+        alertForm.reset();
+        alertIdStore.value = '';
+        alertFormTitle.textContent = 'Configure Alert';
+        saveAlertButton.textContent = 'Save Alert';
+        if (typeof $ !== 'undefined' && $.fn && $.fn.select2) { // Reset Select2 fields
+            $(alertServersSelect).val(null).trigger('change');
+            $(alertResourcesSelect).val(null).trigger('change');
+        }
+    }
+
+    if (alertForm) {
+        alertForm.addEventListener('submit', function(event) {
+            event.preventDefault();
+            const alertId = alertIdStore.value;
+            
+            let recipientsArray = [];
+            if (alertRecipientsTextarea.value.trim()) {
+                recipientsArray = alertRecipientsTextarea.value.split(',').map(email => email.trim()).filter(email => email);
+            }
+            if (alertChannelSelect.value !== 'email' && recipientsArray.length > 1) {
+                 // A simple alert, could be replaced by a more robust notification system in the UI
+                alert("For non-email channels, please provide a single recipient ID/token.");
+                return;
+            }
+
+
+            const alertData = {
+                alert_name: alertNameInput.value,
+                server_hosts: $(alertServersSelect).val(), // For Select2
+                resource_types: $(alertResourcesSelect).val(), // For Select2
+                threshold_percent: parseFloat(alertThresholdInput.value),
+                time_frame_minutes: parseInt(alertTimeFrameInput.value, 10),
+                communication_channel: alertChannelSelect.value,
+                recipients: recipientsArray,
+                is_active: alertIsActiveCheckbox.checked
+            };
+
+            // Basic validation
+            if (!alertData.alert_name || !alertData.server_hosts || alertData.server_hosts.length === 0 ||
+                !alertData.resource_types || alertData.resource_types.length === 0 || isNaN(alertData.threshold_percent) ||
+                isNaN(alertData.time_frame_minutes) || !alertData.communication_channel || !alertData.recipients || alertData.recipients.length === 0) {
+                alert("Please fill all required fields correctly."); // Replace with better UI feedback
+                return;
+            }
+
+            const method = alertId ? 'PUT' : 'POST';
+            const url = alertId ? `/api/alerts/${alertId}` : '/api/alerts';
+
+            fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(alertData)
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => { throw new Error(err.error || `HTTP error ${response.status}`) });
+                }
+                return response.json();
+            })
+            .then(data => {
+                // alert(alertId ? 'Alert updated successfully!' : 'Alert created successfully!'); // Replace with better UI feedback
+                console.log(alertId ? 'Alert updated:' : 'Alert created:', data);
+                resetAlertForm();
+                fetchAndDisplayAlerts();
+            })
+            .catch(error => {
+                console.error('Error saving alert:', error);
+                alert(`Error saving alert: ${error.message}`); // Replace with better UI feedback
+            });
+        });
+    }
+
+    if (cancelAlertEditButton) {
+        cancelAlertEditButton.addEventListener('click', resetAlertForm);
+    }
+
+    function fetchAndDisplayAlerts() {
+        if (!alertsTableBody) return;
+        fetch('/api/alerts')
+            .then(response => response.json())
+            .then(alerts => {
+                alertsTableBody.innerHTML = ''; // Clear existing
+                if (alerts && alerts.length > 0) {
+                    alerts.forEach(alert => {
+                        const row = alertsTableBody.insertRow();
+                        row.insertCell().textContent = alert.alert_name;
+                        row.insertCell().textContent = alert.server_hosts.join(', ');
+                        row.insertCell().textContent = alert.resource_types.join(', ');
+                        row.insertCell().textContent = alert.threshold_percent + '%';
+                        row.insertCell().textContent = alert.time_frame_minutes + ' min';
+                        row.insertCell().textContent = alert.communication_channel;
+                        row.insertCell().textContent = alert.recipients.join(', ');
+                        row.insertCell().textContent = alert.is_active ? 'Yes' : 'No';
+                        
+                        const actionsCell = row.insertCell();
+                        const editButton = document.createElement('button');
+                        editButton.textContent = 'Edit';
+                        editButton.className = 'action-button edit-alert';
+                        editButton.addEventListener('click', () => populateAlertFormForEdit(alert));
+                        actionsCell.appendChild(editButton);
+
+                        const deleteButton = document.createElement('button');
+                        deleteButton.textContent = 'Delete';
+                        deleteButton.className = 'action-button delete-alert';
+                        deleteButton.addEventListener('click', () => deleteAlert(alert.id));
+                        actionsCell.appendChild(deleteButton);
+                    });
+                } else {
+                    alertsTableBody.innerHTML = '<tr><td colspan="9">No alerts configured yet.</td></tr>';
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching alerts:', error);
+                if (alertsTableBody) alertsTableBody.innerHTML = '<tr><td colspan="9">Error loading alerts.</td></tr>';
+            });
+    }
+
+    function populateAlertFormForEdit(alert) {
+        resetAlertForm(); // Clear first
+        alertFormTitle.textContent = 'Edit Alert';
+        saveAlertButton.textContent = 'Update Alert';
+        alertIdStore.value = alert.id;
+        alertNameInput.value = alert.alert_name;
+        // For Select2, need to set value and trigger change
+        if (typeof $ !== 'undefined' && $.fn && $.fn.select2) {
+            $(alertServersSelect).val(alert.server_hosts).trigger('change');
+            $(alertResourcesSelect).val(alert.resource_types).trigger('change');
+        } else { // Fallback for standard multi-select
+            Array.from(alertServersSelect.options).forEach(opt => { opt.selected = alert.server_hosts.includes(opt.value); });
+            Array.from(alertResourcesSelect.options).forEach(opt => { opt.selected = alert.resource_types.includes(opt.value); });
+        }
+        alertThresholdInput.value = alert.threshold_percent;
+        alertTimeFrameInput.value = alert.time_frame_minutes;
+        alertChannelSelect.value = alert.communication_channel;
+        alertRecipientsTextarea.value = alert.recipients.join(', ');
+        alertIsActiveCheckbox.checked = alert.is_active;
+        alertNameInput.focus(); // Bring focus to the form
+        window.scrollTo({ top: alertForm.offsetTop - 20, behavior: 'smooth' });
+
+    }
+
+    function deleteAlert(alertId) {
+        if (!confirm('Are you sure you want to delete this alert?')) return;
+
+        fetch(`/api/alerts/${alertId}`, { method: 'DELETE' })
+            .then(response => {
+                if (!response.ok) {
+                     return response.json().then(err => { throw new Error(err.error || `HTTP error ${response.status}`) });
+                }
+                // No content for 204, so don't try to parse JSON if response.status is 204
+                if (response.status === 204) {
+                    return null; 
+                }
+                return response.json();
+            })
+            .then(() => {
+                // alert('Alert deleted successfully!'); // Replace with better UI feedback
+                fetchAndDisplayAlerts(); // Refresh list
+            })
+            .catch(error => {
+                console.error('Error deleting alert:', error);
+                alert(`Error deleting alert: ${error.message}`); // Replace with better UI feedback
+            });
+    }
+    
+    // Main navigation view switcher
+    if (navButtons) {
+        navButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                const viewId = button.dataset.view;
+                showView(viewId);
+            });
+        });
+    }
+
 
     // --- Initialization ---
     setInitialTheme();
-    applyThemeToVisuals(); // Initial call, might not do much if no server selected
-    fetchServerList(); // Initial server list load
+    applyThemeToVisuals(); 
+    fetchServerList(); // Initial server list load, which also populates allServersData
     showView('serverListView'); // Start with the server list
 
     setInterval(fetchServerList, SERVER_LIST_REFRESH_INTERVAL);

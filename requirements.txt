@@ -2,3 +2,4 @@ Flask
 psutil
 python-dotenv
 paramiko
+psycopg2-binary

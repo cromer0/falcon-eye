@@ -1,6 +1,10 @@
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request, Blueprint
 import psutil
 import sqlite3
+import smtplib
+from email.mime.text import MIMEText
+import psycopg2
+import psycopg2.extras # For DictCursor
 import threading
 import time
 import datetime
@@ -13,46 +17,198 @@ from concurrent.futures import ThreadPoolExecutor
 
 # --- Configuration ---
 load_dotenv()
-DATABASE_PATH = os.path.join('data', 'sys_stats.db')
-HISTORICAL_DATA_COLLECTION_INTERVAL = 60
-MAX_HISTORICAL_ENTRIES = 1440
-SSH_TIMEOUT = 25
+
+DATABASE_TYPE = os.getenv("DATABASE_TYPE", "sqlite")
+DATABASE_URL = os.getenv("DATABASE_URL", "") # Used for PostgreSQL
+DATABASE_PATH = os.getenv("DATABASE_PATH", os.path.join('data', 'sys_stats.db')) # Used for SQLite
+
+HISTORICAL_DATA_COLLECTION_INTERVAL = int(os.getenv("HISTORICAL_DATA_COLLECTION_INTERVAL", 60))
+MAX_HISTORICAL_ENTRIES = int(os.getenv("MAX_HISTORICAL_ENTRIES", 1440))
+SSH_TIMEOUT = int(os.getenv("SSH_TIMEOUT", 25))
+
+# Alerting Configuration
+SMTP_SERVER = os.getenv("SMTP_SERVER", "")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_SENDER_EMAIL = os.getenv("SMTP_SENDER_EMAIL", "")
+ALERT_EVALUATION_INTERVAL = int(os.getenv("ALERT_EVALUATION_INTERVAL", 60))
+
 
 app = Flask(__name__)
+alerts_bp = Blueprint('alerts', __name__, url_prefix='/api/alerts')
+
+# --- Helper functions for Alert data transformation ---
+def _format_alert_from_db(alert_row):
+    if alert_row is None:
+        return None
+    alert = dict(alert_row) # Works for both sqlite3.Row and psycopg2.extras.DictRow
+    alert['server_hosts'] = json.loads(alert_row['server_hosts'])
+    alert['resource_types'] = json.loads(alert_row['resource_types'])
+    alert['recipients'] = json.loads(alert_row['recipients'])
+    # Convert boolean for SQLite if necessary (PostgreSQL handles it)
+    if DATABASE_TYPE == 'sqlite' and 'is_active' in alert:
+         alert['is_active'] = bool(alert['is_active'])
+    # Ensure datetime objects are strings for JSON
+    if 'last_triggered_at' in alert and isinstance(alert['last_triggered_at'], datetime.datetime):
+        alert['last_triggered_at'] = alert['last_triggered_at'].isoformat()
+    if 'created_at' in alert and isinstance(alert['created_at'], datetime.datetime):
+        alert['created_at'] = alert['created_at'].isoformat()
+    return alert
+
+def _format_alert_for_db(alert_data):
+    formatted_data = alert_data.copy()
+    if 'server_hosts' in formatted_data:
+        formatted_data['server_hosts'] = json.dumps(formatted_data['server_hosts'])
+    if 'resource_types' in formatted_data:
+        formatted_data['resource_types'] = json.dumps(formatted_data['resource_types'])
+    if 'recipients' in formatted_data:
+        formatted_data['recipients'] = json.dumps(formatted_data['recipients'])
+    return formatted_data
+
+
+# --- Database Connection Management ---
+def get_db_connection():
+    try:
+        if DATABASE_TYPE == "postgres":
+            if not DATABASE_URL:
+                raise ValueError("DATABASE_URL must be set for PostgreSQL connections.")
+            conn = psycopg2.connect(DATABASE_URL)
+            return conn
+        else: # Default to SQLite
+            # Ensure the directory for SQLite DB exists
+            os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
+            conn = sqlite3.connect(DATABASE_PATH)
+            return conn
+    except Exception as e:
+        print(f"Database connection error: {e}")
+        # Optionally, re-raise the exception or handle it as per application needs
+        raise
 
 # --- Database Setup & Local Stats ---
 def init_db():
-    os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS stats (
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            cpu_percent REAL,
-            ram_percent REAL,
-            disk_percent REAL
-        )
-    ''')
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON stats (timestamp);")
-    conn.commit()
-    conn.close()
+    try:
+        cursor.execute("DROP TABLE IF EXISTS stats;") # Keep this for legacy cleanup if any
 
-def store_stats(cpu, ram, disk):
-    conn = sqlite3.connect(DATABASE_PATH)
+        # --- historical_stats table ---
+        if DATABASE_TYPE == "postgres":
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS historical_stats (
+                    id SERIAL PRIMARY KEY,
+                    server_host TEXT NOT NULL,
+                    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    cpu_percent REAL,
+                    ram_percent REAL,
+                    disk_percent REAL
+                )
+            ''')
+        else: # SQLite
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS historical_stats (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    server_host TEXT NOT NULL,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    cpu_percent REAL,
+                    ram_percent REAL,
+                    disk_percent REAL
+                )
+            ''')
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_server_host_timestamp ON historical_stats (server_host, timestamp);")
+
+        # --- alerts table ---
+        if DATABASE_TYPE == "postgres":
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS alerts (
+                    id SERIAL PRIMARY KEY,
+                    alert_name TEXT NOT NULL,
+                    server_hosts JSONB NOT NULL,
+                    resource_types JSONB NOT NULL,
+                    threshold_percent REAL NOT NULL,
+                    time_frame_minutes INTEGER NOT NULL,
+                    communication_channel TEXT NOT NULL,
+                    recipients JSONB NOT NULL,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    last_triggered_at TIMESTAMP WITH TIME ZONE NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+        else: # SQLite
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS alerts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    alert_name TEXT NOT NULL,
+                    server_hosts TEXT NOT NULL, -- Store as JSON string
+                    resource_types TEXT NOT NULL, -- Store as JSON string
+                    threshold_percent REAL NOT NULL,
+                    time_frame_minutes INTEGER NOT NULL,
+                    communication_channel TEXT NOT NULL,
+                    recipients TEXT NOT NULL, -- Store as JSON string
+                    is_active INTEGER NOT NULL DEFAULT 1, -- 0 for false, 1 for true
+                    last_triggered_at DATETIME NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_alerts_is_active ON alerts (is_active);")
+        
+        conn.commit()
+    except Exception as e:
+        print(f"Error during DB initialization: {e}")
+        conn.rollback() # Rollback changes if an error occurs
+    finally:
+        cursor.close()
+        conn.close()
+
+def store_server_stats(server_host, cpu, ram, disk):
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO stats (cpu_percent, ram_percent, disk_percent) VALUES (?, ?, ?)",
-                   (cpu, ram, disk))
-    cursor.execute(f'''
-        DELETE FROM stats
-        WHERE timestamp NOT IN (
-            SELECT timestamp
-            FROM stats
-            ORDER BY timestamp DESC
-            LIMIT {MAX_HISTORICAL_ENTRIES}
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    placeholder = "%s" if DATABASE_TYPE == "postgres" else "?"
+    
+    try:
+        sql_insert = f"INSERT INTO historical_stats (server_host, cpu_percent, ram_percent, disk_percent) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})"
+        cursor.execute(sql_insert, (server_host, cpu, ram, disk))
+
+        if DATABASE_TYPE == "postgres":
+            # Postgres uses GREATEST and requires casting MAX_HISTORICAL_ENTRIES to integer if it's passed as a string placeholder
+            # However, MAX_HISTORICAL_ENTRIES is an int global here, so direct formatting is also an option,
+            # but using placeholders for all variable data is safer.
+            # Note: The LIMIT clause in PostgreSQL expects a non-negative integer.
+            # The subquery calculates how many rows to delete.
+            # We select IDs of rows that are "older" beyond the MAX_HISTORICAL_ENTRIES count for that server_host.
+            sql_delete = f'''
+                DELETE FROM historical_stats
+                WHERE id IN (
+                    SELECT id
+                    FROM historical_stats
+                    WHERE server_host = {placeholder}
+                    ORDER BY timestamp ASC
+                    OFFSET 0 
+                    LIMIT GREATEST(0, (SELECT COUNT(*) FROM historical_stats WHERE server_host = {placeholder}) - {placeholder}::integer)
+                )
+            '''
+            cursor.execute(sql_delete, (server_host, server_host, MAX_HISTORICAL_ENTRIES))
+        else: # SQLite
+            sql_delete = f'''
+                DELETE FROM historical_stats
+                WHERE id IN (
+                    SELECT id
+                    FROM historical_stats
+                    WHERE server_host = ?
+                    ORDER BY timestamp ASC
+                    LIMIT MAX(0, (SELECT COUNT(*) FROM historical_stats WHERE server_host = ?) - ?)
+                )
+            '''
+            # For SQLite, MAX_HISTORICAL_ENTRIES is directly an integer.
+            cursor.execute(sql_delete, (server_host, server_host, MAX_HISTORICAL_ENTRIES))
+        
+        conn.commit()
+    except Exception as e:
+        print(f"Error in store_server_stats: {e}")
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
 
 def get_current_stats():
     cpu_percent = psutil.cpu_percent(interval=0.1)
@@ -80,16 +236,81 @@ def get_current_stats():
         'timestamp': datetime.datetime.now().isoformat()
     }
 
-def historical_data_collector():
-    print("Starting historical data collection thread...")
+# --- Per-Server Data Collection ---
+def collect_and_store_single_server_data(server_config, all_server_configs_map):
+    current_server_host = server_config['host']
+    current_server_name = server_config.get('name', current_server_host)
+    print(f"Starting data collection for {current_server_name} ({current_server_host})...")
+
     while True:
+        # print(f"Collecting data for {current_server_name} ({current_server_host}) at {datetime.datetime.now()}...")
+        stats_data = None
         try:
-            stats = get_current_stats()
-            store_stats(stats['cpu_percent'], stats['ram_percent'], stats['disk_percent'])
+            if server_config.get('is_local'):
+                raw_stats = get_current_stats()
+                stats_data = {
+                    'cpu_percent': raw_stats['cpu_percent'],
+                    'ram_percent': raw_stats['ram_percent'],
+                    'disk_percent': raw_stats['disk_percent'],
+                    'status': 'online'
+                }
+            else:
+                stats_data = get_remote_server_stats(server_config, all_server_configs_map)
+
+            if stats_data and stats_data.get('status') == 'online':
+                store_server_stats(
+                    current_server_host,
+                    stats_data['cpu_percent'],
+                    stats_data['ram_percent'],
+                    stats_data['disk_percent']
+                )
+                # print(f"Successfully stored stats for {current_server_name} ({current_server_host})")
+            else:
+                error_msg = stats_data.get('error_message', 'Unknown error or invalid data') if stats_data else 'No data received'
+                print(f"Could not retrieve valid stats for {current_server_name} ({current_server_host}). Status: {stats_data.get('status') if stats_data else 'N/A'}. Error: {error_msg}")
+
         except Exception as e:
-            print(f"Error in historical_data_collector: {e}")
+            print(f"Unhandled exception while processing server {current_server_name} ({current_server_host}): {e}")
+            import traceback
+            traceback.print_exc()
+
+
         time.sleep(HISTORICAL_DATA_COLLECTION_INTERVAL)
 
+
+def start_server_data_collection_threads():
+    print("Initializing server data collection threads...")
+    all_server_configs_map = parse_remote_server_configs()
+    servers_to_monitor = list(all_server_configs_map.values())
+
+    local_server_in_env = False
+    for sconf in servers_to_monitor:
+        if sconf.get('is_local', False):
+            local_server_in_env = True
+            break
+    if not local_server_in_env:
+        local_server_config = {
+            'host': os.getenv('DEFAULT_LOCAL_HOST_ID', 'localhost_monitored'),
+            'name': os.getenv('LOCAL_SERVER_NAME', 'Local Server (App Host)'),
+            'is_local': True,
+            'disk_path': '/',
+        }
+        servers_to_monitor.append(local_server_config)
+        # Also add it to the map if it's going to be used by get_remote_server_stats (though not strictly needed if it's purely local)
+        # all_server_configs_map[local_server_config['host']] = local_server_config # Not strictly needed if it's never a jump target
+
+    if not servers_to_monitor:
+        print("No servers configured to monitor.")
+        return
+
+    for server_config in servers_to_monitor:
+        thread = threading.Thread(
+            target=collect_and_store_single_server_data,
+            args=(server_config, all_server_configs_map), # Pass the full map
+            daemon=True
+        )
+        thread.start()
+        print(f"Started monitoring thread for server: {server_config.get('name', server_config['host'])}")
 
 # --- Remote Server Stat Collection ---
 def get_ssh_connection_args(server_conf_entry):
@@ -331,19 +552,64 @@ def api_current_stats(): return jsonify(get_current_stats())
 
 @app.route('/api/historical_stats')
 def api_historical_stats():
-    conn = sqlite3.connect(DATABASE_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT timestamp, cpu_percent, ram_percent, disk_percent FROM stats ORDER BY timestamp ASC")
-    rows = cursor.fetchall()
-    conn.close()
-    data = {
-        'labels': [row['timestamp'] for row in rows],
-        'cpu_data': [row['cpu_percent'] for row in rows],
-        'ram_data': [row['ram_percent'] for row in rows],
-        'disk_data': [row['disk_percent'] for row in rows]
-    }
+    server_host_filter = request.args.get('server_host')
+    conn = get_db_connection()
+    
+    # Determine cursor type for dictionary-like access
+    if DATABASE_TYPE == "postgres":
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    else: # SQLite
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+    rows_data = []
+    try:
+        placeholder = "%s" if DATABASE_TYPE == "postgres" else "?"
+        query = f"SELECT timestamp, cpu_percent, ram_percent, disk_percent, server_host FROM historical_stats"
+        params = []
+
+        if server_host_filter:
+            query += f" WHERE server_host = {placeholder}"
+            params.append(server_host_filter)
+        query += " ORDER BY timestamp ASC"
+
+        cursor.execute(query, params)
+        fetched_rows = cursor.fetchall()
+
+        # Convert rows to dictionary if not already (psycopg2.extras.DictCursor does this)
+        # For sqlite3.Row, it behaves like a dict.
+        # For standard psycopg2 cursor, manual conversion would be needed:
+        # if DATABASE_TYPE == "postgres" and not isinstance(cursor, psycopg2.extras.DictCursor):
+        #     columns = [desc[0] for desc in cursor.description]
+        #     fetched_rows = [dict(zip(columns, row)) for row in fetched_rows]
+        # However, with DictCursor, this is handled.
+        
+        rows_data = [dict(row) for row in fetched_rows] # Ensure it's a list of standard dicts for jsonify
+
+    except Exception as e:
+        print(f"Error in api_historical_stats: {e}")
+        # Potentially rollback if any write operations were planned, though this is a read endpoint.
+    finally:
+        cursor.close()
+        conn.close()
+
+    if not server_host_filter and rows_data:
+        data = {
+            'labels': [row['timestamp'].isoformat() if isinstance(row['timestamp'], datetime.datetime) else str(row['timestamp']) for row in rows_data],
+            'cpu_data': [row['cpu_percent'] for row in rows_data],
+            'ram_data': [row['ram_percent'] for row in rows_data],
+            'disk_data': [row['disk_percent'] for row in rows_data],
+            'server_hosts': [row['server_host'] for row in rows_data]
+        }
+    else: # Single server request or no data
+        data = {
+            'labels': [row['timestamp'].isoformat() if isinstance(row['timestamp'], datetime.datetime) else str(row['timestamp']) for row in rows_data],
+            'cpu_data': [row['cpu_percent'] for row in rows_data],
+            'ram_data': [row['ram_percent'] for row in rows_data],
+            'disk_data': [row['disk_percent'] for row in rows_data]
+        }
     return jsonify(data)
+
 
 @app.route('/api/remote_servers_stats')
 def api_remote_servers_stats():
@@ -383,6 +649,18 @@ def api_remote_servers_stats():
 
 if __name__ == '__main__':
     init_db()
-    collector_thread = threading.Thread(target=historical_data_collector, daemon=True)
-    collector_thread.start()
+    # Ensure these are loaded as integers if they come from os.getenv
+    # For this task, we assume they are defined as global integers correctly.
+    # HISTORICAL_DATA_COLLECTION_INTERVAL = int(os.getenv('HISTORICAL_DATA_COLLECTION_INTERVAL', 60))
+    # MAX_HISTORICAL_ENTRIES = int(os.getenv('MAX_HISTORICAL_ENTRIES', 1440))
+
+    server_collection_manager_thread = threading.Thread(target=start_server_data_collection_threads, daemon=True)
+    server_collection_manager_thread.start()
+
+    alert_eval_thread = threading.Thread(target=alert_evaluation_scheduler, daemon=True)
+    alert_eval_thread.start()
+    
+    # Register Blueprints
+    app.register_blueprint(alerts_bp)
+    
     app.run(debug=True, host='0.0.0.0', port=5000)
