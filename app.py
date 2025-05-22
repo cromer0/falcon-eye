@@ -240,22 +240,26 @@ def historical_data_collector():
                     if remote_server_config.get('is_local', False):
                         # print(f"Skipping historical data collection for '{server_display_name}' as it's marked local.")
                         continue
-
-                    # print(f"Fetching historical stats for remote server: {server_display_name} ({remote_server_config['host']})")
+                    
+                    print(f"[Collector] Attempting to fetch stats for remote server: {remote_server_config.get('name', remote_server_config.get('host'))}")
                     # Pass the full map for jump server resolution if needed.
                     remote_stats = get_remote_server_stats(remote_server_config, server_configs_map)
+                    print(f"[Collector] Raw stats for {remote_server_config.get('name')}: {remote_stats}")
 
                     if remote_stats and remote_stats.get('status') == 'online':
+                        print(f"[Collector] Storing stats for {remote_stats['name']}: CPU {remote_stats['cpu_percent']}%, RAM {remote_stats['ram_percent']}%, Disk {remote_stats['disk_percent']}%")
                         store_stats(
                             remote_stats['name'], # Use the name from the stats result (which is derived from config)
                             remote_stats['cpu_percent'],
                             remote_stats['ram_percent'],
                             remote_stats['disk_percent']
                         )
-                        # print(f"Successfully stored historical stats for {remote_stats['name']}.")
+                        # print(f"Successfully stored historical stats for {remote_stats['name']}.") # Original success print, can be kept or removed
                     else:
+                        # Use server_display_name for consistency if remote_stats['name'] might be missing on error
                         error_msg = remote_stats.get('error_message', 'Unknown error')
-                        print(f"Error collecting historical data for {server_display_name}: {error_msg}")
+                        status_msg = remote_stats.get('status', 'unknown')
+                        print(f"[Collector] Not storing stats for {server_display_name} due to status: {status_msg}. Error: {error_msg}")
                 except Exception as e_remote:
                     print(f"Unhandled exception while processing remote server {server_display_name}: {e_remote}")
         
