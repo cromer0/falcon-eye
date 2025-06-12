@@ -109,7 +109,7 @@ def init_db():
             ''')
             # Index for faster queries on server_name and timestamp
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_server_timestamp ON stats (server_name, timestamp);")
-        
+
         conn.commit()
     except Exception as e:
         print(f"Error during database initialization: {e}")
@@ -240,7 +240,7 @@ def historical_data_collector():
                     if remote_server_config.get('is_local', False):
                         # print(f"Skipping historical data collection for '{server_display_name}' as it's marked local.")
                         continue
-                    
+
                     print(f"[Collector] Attempting to fetch stats for remote server: {remote_server_config.get('name', remote_server_config.get('host'))}")
                     # Pass the full map for jump server resolution if needed.
                     remote_stats = get_remote_server_stats(remote_server_config, server_configs_map)
@@ -262,12 +262,12 @@ def historical_data_collector():
                         print(f"[Collector] Not storing stats for {server_display_name} due to status: {status_msg}. Error: {error_msg}")
                 except Exception as e_remote:
                     print(f"Unhandled exception while processing remote server {server_display_name}: {e_remote}")
-        
+
         except Exception as e_main_loop:
             # This is a catch-all for unexpected errors in the main loop itself (e.g., issues with server_configs_map iteration)
             print(f"Critical error in historical_data_collector main loop: {e_main_loop}")
             # Potentially add a short sleep here to prevent rapid-fire logging if the error is persistent.
-            time.sleep(10) 
+            time.sleep(10)
 
         # Sleep at the end of processing all servers for this interval
         time.sleep(current_collection_interval)
@@ -539,19 +539,19 @@ def api_current_stats(): return jsonify(get_current_stats())
 @app.route('/api/historical_stats')
 def api_historical_stats():
     requested_server_name = request.args.get('server_name')
-    
+
     # Default to 'local' if no server_name is provided or if it's an empty string
     target_server_name = requested_server_name if requested_server_name else 'local'
 
     try:
         conn, cursor = get_db_connection()
-        
+
         query_sql = ""
         query_params = (target_server_name,)
 
         if DATABASE_TYPE == 'sqlite':
-            conn.row_factory = sqlite3.Row 
-            cursor = conn.cursor() 
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
             query_sql = "SELECT timestamp, cpu_percent, ram_percent, disk_percent FROM stats WHERE server_name = ? ORDER BY timestamp ASC"
         elif DATABASE_TYPE == 'postgresql':
             # DictCursor is already set by get_db_connection for postgresql
@@ -561,7 +561,7 @@ def api_historical_stats():
 
         cursor.execute(query_sql, query_params)
         rows = cursor.fetchall()
-        
+
         # Prepare data structure for JSON response
         data = {
             'server_name': target_server_name, # Include the server name in the response
@@ -583,9 +583,9 @@ def api_historical_stats():
                 data['cpu_data'].append(row['cpu_percent'])
                 data['ram_data'].append(row['ram_percent'])
                 data['disk_data'].append(row['disk_percent'])
-        
+
         return jsonify(data)
-        
+
     except Exception as e:
         print(f"Error in api_historical_stats for server '{target_server_name}': {e}")
         # import traceback
