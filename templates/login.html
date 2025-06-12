@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Server Monitor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" href="{{ url_for('static', filename='images/logo.svg') }}">
+</head>
+<body class="light-mode login-page-body"> {# Default to light, JS can toggle #}
+
+    <div class="login-container">
+        <div class="login-logo">
+            <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="App Logo">
+        </div>
+        <h1>Login</h1>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <ul class="flash-messages">
+            {% for category, message in messages %}
+              <li class="{{ category }}">{{ message }}</li>
+            {% endfor %}
+            </ul>
+          {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="{{ url_for('login') }}">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <button type="submit" class="login-button">Login</button>
+        </form>
+    </div>
+
+    <script>
+        // Basic dark mode persistence (optional, can be enhanced from main.js if needed)
+        const darkModeToggle = document.createElement('button'); // Dummy for now
+        darkModeToggle.id = 'darkModeToggle';
+        darkModeToggle.style.display = 'none'; // Hide it, only used for logic
+        document.body.appendChild(darkModeToggle);
+
+
+        const preferDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (localStorage.getItem("darkMode") === "enabled") {
+            document.body.classList.add("dark-mode");
+            darkModeToggle.textContent = "☀️";
+        } else if (localStorage.getItem("darkMode") === "disabled") {
+            document.body.classList.remove("dark-mode");
+            darkModeToggle.textContent = "☾";
+        } else if (preferDark) {
+            document.body.classList.add("dark-mode");
+            darkModeToggle.textContent = "☀️";
+        } else {
+             document.body.classList.remove("dark-mode");
+            darkModeToggle.textContent = "☾";
+        }
+        // No toggle button on login page itself, it just respects the mode
+    </script>
+</body>
+</html>

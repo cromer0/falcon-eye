@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Server Monitor</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/logo.svg') }}" type="image/svg+xml">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
@@ -11,8 +12,16 @@
 <body class="light-mode">
 
     <header>
-        <h1>Server Performance Monitor</h1>
-        <button id="darkModeToggle">☾</button>
+        <div class="header-content">
+            <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="App Logo" id="headerLogo">
+            <h1>Server Performance Monitor</h1>
+        </div>
+        <div class="header-actions">
+            <form action="{{ url_for('logout') }}" method="post" style="display: inline;">
+                <button type="submit" id="logoutButton">Logout</button>
+            </form>
+            <button id="darkModeToggle">☾</button>
+        </div>
     </header>
 
     <main>
