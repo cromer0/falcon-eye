@@ -176,7 +176,14 @@ const getChartJsThemeOptions = () => {
         }
     }
     // ... (rest of dark mode setup and toggle calling applyThemeToVisuals) ...
-    const setInitialTheme = () => { /* ... same ... */ };
+    const setInitialTheme = () => {
+        const savedTheme = localStorage.getItem("theme");
+        if (savedTheme === "light") {
+            document.body.classList.remove("dark-mode");
+        } else {
+            document.body.classList.add("dark-mode");
+        }
+ };
     darkModeToggle.addEventListener('click', () => {
         body.classList.toggle('dark-mode');
         localStorage.setItem("theme", body.classList.contains("dark-mode") ? "dark" : "light");
@@ -361,7 +368,7 @@ const getChartJsThemeOptions = () => {
         document.querySelectorAll('#detailHistoricalChartContainer .chart-container').forEach(c => c.style.display = 'none');
 
 
-        if (selectedServerData && selectedServerData.is_local) {
+        if (selectedServerData) {
             historicalDataMessageEl.textContent = "Loading historical data...";
             historicalDataMessageEl.style.display = 'block';
             fetch('/api/historical_stats') // This endpoint is for the *local* server's DB
