@@ -12,6 +12,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 import psycopg2
 import psycopg2.extras # For dictionary cursor
+import logging
 
 # --- Configuration ---
 load_dotenv()
@@ -38,16 +39,35 @@ if data_gathering_interval_str:
         interval_seconds = int(data_gathering_interval_str)
         if interval_seconds > 0:
             current_collection_interval = interval_seconds
-            print(f"Using custom data gathering interval: {current_collection_interval} seconds.")
+            logger.info(f"Using custom data gathering interval: {current_collection_interval} seconds.")
         else:
-            print(f"Warning: {DATA_GATHERING_INTERVAL_SECONDS_ENV_VAR} ('{data_gathering_interval_str}') must be a positive integer. Using default: {current_collection_interval}s.")
+            logger.warning(f"{DATA_GATHERING_INTERVAL_SECONDS_ENV_VAR} ('{data_gathering_interval_str}') must be a positive integer. Using default: {current_collection_interval}s.")
     except ValueError:
-        print(f"Warning: Invalid value for {DATA_GATHERING_INTERVAL_SECONDS_ENV_VAR} ('{data_gathering_interval_str}'). Expected an integer. Using default: {current_collection_interval}s.")
+        logger.warning(f"Invalid value for {DATA_GATHERING_INTERVAL_SECONDS_ENV_VAR} ('{data_gathering_interval_str}'). Expected an integer. Using default: {current_collection_interval}s.")
 
 DETAIL_VIEW_REFRESH_INTERVAL_MS_ENV_VAR = 'DETAIL_VIEW_REFRESH_INTERVAL_MS'
 DEFAULT_DETAIL_VIEW_REFRESH_INTERVAL_MS = 3000
 SERVER_LIST_REFRESH_INTERVAL_MS_ENV_VAR = 'SERVER_LIST_REFRESH_INTERVAL_MS'
 DEFAULT_SERVER_LIST_REFRESH_INTERVAL_MS = 15000
+
+# --- Logger Setup ---
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(threadName)s - %(module)s - %(funcName)s - %(message)s',
+                    handlers=[logging.StreamHandler()])
+logger = logging.getLogger(__name__)
+
+# --- Collector Status Globals ---
+collector_status_info = {
+    "last_cycle_start_time": None,
+    "last_cycle_end_time": None,
+    "last_cycle_duration_seconds": None,
+    "servers_configured_count": 0,
+    "servers_processed_in_last_cycle": 0,
+    "servers_failed_in_last_cycle": 0,
+    "configured_server_names": [], # List of names of all configured servers
+    "status_updated_at": None # Timestamp of when this status dict was last updated
+}
+collector_status_lock = threading.Lock()
 
 app = Flask(__name__)
 
@@ -85,6 +105,7 @@ def init_db():
     """Initializes the database schema based on DATABASE_TYPE."""
     try:
         conn, cursor = get_db_connection()
+        logger.info(f"Initializing database ({DATABASE_TYPE})...")
         if DATABASE_TYPE == 'sqlite':
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS stats (
@@ -111,8 +132,9 @@ def init_db():
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_server_timestamp ON stats (server_name, timestamp);")
 
         conn.commit()
+        logger.info(f"Database schema initialized successfully for {DATABASE_TYPE}.")
     except Exception as e:
-        print(f"Error during database initialization: {e}")
+        logger.error(f"Error during database initialization: {e}", exc_info=True)
         # Depending on the error, you might want to raise it or handle it differently
     finally:
         if 'conn' in locals() and conn:
@@ -121,6 +143,7 @@ def init_db():
 
 def store_stats(server_name, cpu, ram, disk):
     """Stores system stats into the configured database, including server_name."""
+    logger.debug(f"Attempting to store stats for server: {server_name} (CPU: {cpu}%, RAM: {ram}%, Disk: {disk}%)")
     try:
         conn, cursor = get_db_connection()
 
@@ -171,8 +194,9 @@ def store_stats(server_name, cpu, ram, disk):
             #     )
             # ''', (server_name, server_name, MAX_HISTORICAL_ENTRIES))
         conn.commit()
+        logger.info(f"Successfully stored stats for server: {server_name}")
     except Exception as e:
-        print(f"Error in store_stats for server '{server_name}': {e}")
+        logger.error(f"Error in store_stats for server '{server_name}': {e}", exc_info=True)
     finally:
         if 'conn' in locals() and conn:
             cursor.close()
@@ -191,7 +215,7 @@ def get_current_stats():
         disk_percent = 0.0
         disk_total_gb = 0.0 # Ensure these are defined
         disk_used_gb = 0.0
-        print("Warning: Could not get disk usage for '/'. Defaulting to 0.")
+        logger.warning("Could not get disk usage for '/'. Defaulting to 0.", exc_info=True) # Add exc_info for context
 
     return {
         'cpu_percent': cpu_percent,
@@ -205,28 +229,68 @@ def get_current_stats():
     }
 
 def historical_data_collector():
-    print("Starting historical data collection thread...")
+    logger.info("Starting historical data collection thread...")
     # Fetch server configurations once, assuming they don't change at runtime.
     # If they can change, this should be moved inside the loop.
     try:
-        server_configs_map = parse_remote_server_configs()
-        print(f"Historical data collector initialized with {len(server_configs_map)} remote server(s).")
+        server_configs_map = parse_remote_server_configs() # This function will log its own details
+        logger.info(f"Historical data collector initialized with {len(server_configs_map)} remote server(s) configurations loaded.")
+        with collector_status_lock:
+            collector_status_info["servers_configured_count"] = len(server_configs_map)
+            # Store names derived from config: name, then host, then a generic "ServerIndex_X"
+            collector_status_info["configured_server_names"] = [
+                cfg.get('name', cfg.get('host', f"ServerIndex_{idx}"))
+                for idx, cfg in server_configs_map.items()
+            ]
+            # Add 'local' if it's not already effectively configured (e.g. via IS_LOCAL flag for a config entry)
+            # This ensures 'local' is listed if it's implicitly monitored.
+            is_local_explicitly_configured = any(s_cfg.get('is_local', False) for s_cfg in server_configs_map.values())
+            if not is_local_explicitly_configured and 'local' not in collector_status_info["configured_server_names"]:
+                 collector_status_info["configured_server_names"].append('local')
+                 collector_status_info["servers_configured_count"] +=1
+
+
     except Exception as e:
-        print(f"CRITICAL: Could not parse server configurations for historical data collector: {e}")
-        print("Historical data collector will only collect local stats.")
+        logger.critical(f"Could not parse server configurations for historical data collector: {e}", exc_info=True)
+        logger.info("Historical data collector will only collect local stats due to parsing error.")
         server_configs_map = {} # Ensure it's a dict
+        with collector_status_lock:
+            collector_status_info["servers_configured_count"] = 0 # Or 1 if local is always assumed
+            collector_status_info["configured_server_names"] = ['local'] if not any(s_cfg.get('is_local', False) for s_cfg in server_configs_map.values()) else []
+
 
     while True:
+        cycle_start_time = datetime.datetime.now()
+        logger.info(f"Starting new collection cycle at {cycle_start_time.isoformat()}")
+
+        with collector_status_lock:
+            collector_status_info['last_cycle_start_time'] = cycle_start_time.isoformat()
+            collector_status_info['servers_processed_in_last_cycle'] = 0
+            collector_status_info['servers_failed_in_last_cycle'] = 0
+            # Update server_configs_map derived info here if it can change dynamically per cycle
+            # For now, assuming it's loaded once at startup. If it can change, re-populate:
+            # collector_status_info["servers_configured_count"] = len(server_configs_map) + (1 if 'local' not in [cfg.get('name') for cfg in server_configs_map.values()])
+            # collector_status_info["configured_server_names"] = [cfg.get('name', cfg.get('host', f"ServerIndex_{idx}")) for idx, cfg in server_configs_map.items()]
+            # if 'local' not in collector_status_info["configured_server_names"]: collector_status_info["configured_server_names"].append('local')
+
+
+        local_processed_successfully = False
         try:
             # 1. Collect and store local server stats
             try:
+                logger.debug("Attempting to collect local stats.")
                 local_stats = get_current_stats()
-                # Using 'local' as the server_name for the machine running this app.
-                # This aligns with the previous setup and PostgreSQL's NOT NULL constraint.
                 store_stats('local', local_stats['cpu_percent'], local_stats['ram_percent'], local_stats['disk_percent'])
-                # print("Successfully stored local server stats.")
+                logger.info("Successfully collected and initiated storage for local server stats.")
+                local_processed_successfully = True
             except Exception as e_local:
-                print(f"Error collecting or storing local server stats: {e_local}")
+                logger.error(f"Error collecting or storing local server stats: {e_local}", exc_info=True)
+                # No specific increment for failed local here, handled by servers_failed_in_last_cycle if 'local' is part of servers loop
+
+            with collector_status_lock:
+                collector_status_info['servers_processed_in_last_cycle'] += 1
+                if not local_processed_successfully:
+                    collector_status_info['servers_failed_in_last_cycle'] += 1
 
             # 2. Collect and store remote server stats
             # The server_configs_map is a dictionary where keys are original indices (e.g., "1", "2")
@@ -237,39 +301,59 @@ def historical_data_collector():
                     # Skip collection for servers marked as 'is_local: true' in config,
                     # as their stats are (or should be) collected by the local collector above.
                     # This check helps avoid redundant SSH to localhost if it's also in remote configs.
+                    # This logic assumes 'is_local' marked servers are not re-processed here.
+                    # If 'local' stats are handled separately (as above), ensure it's not double-counted or missed.
                     if remote_server_config.get('is_local', False):
-                        # print(f"Skipping historical data collection for '{server_display_name}' as it's marked local.")
+                        logger.debug(f"Skipping historical data collection for '{server_display_name}' as it's marked local; already processed or psutil direct.")
+                        # It was processed as 'local' above, so no increment to servers_processed here for this entry.
                         continue
 
-                    print(f"[Collector] Attempting to fetch stats for remote server: {remote_server_config.get('name', remote_server_config.get('host'))}")
-                    # Pass the full map for jump server resolution if needed.
-                    remote_stats = get_remote_server_stats(remote_server_config, server_configs_map)
-                    print(f"[Collector] Raw stats for {remote_server_config.get('name')}: {remote_stats}")
+                    remote_processed_successfully = False
+                    logger.info(f"Attempting to fetch historical stats for remote server: {server_display_name}")
+                    try:
+                        remote_stats = get_remote_server_stats(remote_server_config, server_configs_map)
+                        if remote_stats and remote_stats.get('status') == 'online':
+                            logger.info(f"Storing historical stats for {remote_stats['name']}: CPU {remote_stats['cpu_percent']}%, RAM {remote_stats['ram_percent']}%, Disk {remote_stats['disk_percent']}%")
+                            store_stats(
+                                remote_stats['name'],
+                                remote_stats['cpu_percent'],
+                                remote_stats['ram_percent'],
+                                remote_stats['disk_percent']
+                            )
+                            remote_processed_successfully = True
+                        else:
+                            error_msg = remote_stats.get('error_message', 'Unknown error')
+                            status_msg = remote_stats.get('status', 'unknown')
+                            logger.warning(f"Not storing historical stats for {server_display_name} due to status: '{status_msg}'. Error: {error_msg}")
+                    except Exception as e_remote_fetch: # Catch errors from get_remote_server_stats itself
+                        logger.error(f"Exception during get_remote_server_stats for {server_display_name}: {e_remote_fetch}", exc_info=True)
+                        # remote_processed_successfully remains False
 
-                    if remote_stats and remote_stats.get('status') == 'online':
-                        print(f"[Collector] Storing stats for {remote_stats['name']}: CPU {remote_stats['cpu_percent']}%, RAM {remote_stats['ram_percent']}%, Disk {remote_stats['disk_percent']}%")
-                        store_stats(
-                            remote_stats['name'], # Use the name from the stats result (which is derived from config)
-                            remote_stats['cpu_percent'],
-                            remote_stats['ram_percent'],
-                            remote_stats['disk_percent']
-                        )
-                        # print(f"Successfully stored historical stats for {remote_stats['name']}.") # Original success print, can be kept or removed
-                    else:
-                        # Use server_display_name for consistency if remote_stats['name'] might be missing on error
-                        error_msg = remote_stats.get('error_message', 'Unknown error')
-                        status_msg = remote_stats.get('status', 'unknown')
-                        print(f"[Collector] Not storing stats for {server_display_name} due to status: {status_msg}. Error: {error_msg}")
-                except Exception as e_remote:
-                    print(f"Unhandled exception while processing remote server {server_display_name}: {e_remote}")
+                    with collector_status_lock:
+                        collector_status_info['servers_processed_in_last_cycle'] += 1
+                        if not remote_processed_successfully:
+                            collector_status_info['servers_failed_in_last_cycle'] += 1
 
-        except Exception as e_main_loop:
-            # This is a catch-all for unexpected errors in the main loop itself (e.g., issues with server_configs_map iteration)
-            print(f"Critical error in historical_data_collector main loop: {e_main_loop}")
-            # Potentially add a short sleep here to prevent rapid-fire logging if the error is persistent.
+                except Exception as e_remote_loop: # Catch errors in the loop logic for a server
+                    logger.error(f"Unhandled exception while processing remote server {server_display_name} in historical_data_collector loop: {e_remote_loop}", exc_info=True)
+                    with collector_status_lock: # Still count it as processed, but failed
+                        collector_status_info['servers_processed_in_last_cycle'] += 1 # Or only if not already counted
+                        collector_status_info['servers_failed_in_last_cycle'] += 1
+
+
+        except Exception as e_main_loop: # Errors in the main try block of the cycle, outside server loops
+            logger.critical(f"Critical error in historical_data_collector main loop: {e_main_loop}", exc_info=True)
+            # This type of error might mean the cycle didn't complete, so status might be partially updated.
             time.sleep(10)
 
-        # Sleep at the end of processing all servers for this interval
+        cycle_end_time = datetime.datetime.now()
+        cycle_duration = (cycle_end_time - cycle_start_time).total_seconds()
+        with collector_status_lock:
+            collector_status_info['last_cycle_end_time'] = cycle_end_time.isoformat()
+            collector_status_info['last_cycle_duration_seconds'] = cycle_duration
+            collector_status_info['status_updated_at'] = datetime.datetime.now().isoformat()
+
+        logger.info(f"Collection cycle finished in {cycle_duration:.2f} seconds. Processed: {collector_status_info['servers_processed_in_last_cycle']}, Failed: {collector_status_info['servers_failed_in_last_cycle']}. Sleeping for {current_collection_interval} seconds.")
         time.sleep(current_collection_interval)
 
 
@@ -319,8 +403,8 @@ def get_remote_server_stats(target_server_config, all_server_configs_map):
     try:
         target_ssh_args = get_ssh_connection_args(target_server_config)
         if not target_ssh_args:
-            base_result['error_message'] = "Target server auth (password/key) missing."
-            print(f"Auth error for target {name}: Auth method missing.")
+            base_result['error_message'] = "Target server authentication details (password/key) missing in configuration."
+            logger.warning(f"Auth error for target {name}: Auth method missing. Config: {target_server_config}") # Log more info
             return base_result
 
         sock = None # Socket for connection (direct or via jump)
@@ -330,18 +414,18 @@ def get_remote_server_stats(target_server_config, all_server_configs_map):
             jump_server_conf = all_server_configs_map.get(jump_server_index_str)
 
             if not jump_server_conf:
-                base_result['error_message'] = f"Jump server config for index '{jump_server_index_str}' not found."
-                print(f"Error for {name}: Jump server index '{jump_server_index_str}' invalid or missing from map.")
+                base_result['error_message'] = f"Jump server configuration for index '{jump_server_index_str}' not found in the provided server map."
+                logger.error(f"Error for {name}: Jump server index '{jump_server_index_str}' invalid or missing from map. Target config: {target_server_config}")
                 return base_result
 
-            print(f"Connecting to {name} via jump server: {jump_server_conf.get('name', jump_server_conf['host'])}")
+            logger.info(f"Connecting to {name} ({target_server_config['host']}) via jump server: {jump_server_conf.get('name', jump_server_conf['host'])}")
             jump_client = paramiko.SSHClient()
             jump_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
             jump_ssh_args = get_ssh_connection_args(jump_server_conf)
             if not jump_ssh_args:
-                base_result['error_message'] = f"Jump server '{jump_server_conf.get('name')}' auth (password/key) missing."
-                print(f"Auth error for jump server {jump_server_conf.get('name')}: Auth method missing.")
+                base_result['error_message'] = f"Jump server '{jump_server_conf.get('name', jump_server_conf['host'])}' authentication details (password/key) missing."
+                logger.warning(f"Auth error for jump server {jump_server_conf.get('name', jump_server_conf['host'])}: Auth method missing. Jump config: {jump_server_conf}")
                 if jump_client: jump_client.close()
                 return base_result
 
@@ -352,19 +436,21 @@ def get_remote_server_stats(target_server_config, all_server_configs_map):
             dest_addr = (target_server_config['host'], int(target_server_config.get('port', 22)))
             src_addr = ('127.0.0.1', 0) # Let the system pick a source port on the jump server
             try:
-                sock = transport.open_channel("direct-tcpip", dest_addr, src_addr, timeout=SSH_TIMEOUT) # Pass timeout here too
+                sock = transport.open_channel("direct-tcpip", dest_addr, src_addr, timeout=SSH_TIMEOUT)
             except paramiko.SSHException as e:
-                base_result['error_message'] = f"Failed to open channel via jump server: {e}"
-                print(f"Channel error for {name} via {jump_server_conf.get('name')}: {e}")
+                base_result['error_message'] = f"Failed to open SSH channel via jump server {jump_server_conf.get('name', jump_server_conf['host'])}: {e}"
+                logger.error(f"Channel error for {name} via {jump_server_conf.get('name', jump_server_conf['host'])}: {e}", exc_info=True)
                 if jump_client: jump_client.close()
                 return base_result
 
             target_ssh_args['sock'] = sock # Use this channel for the target connection
+            logger.info(f"SSH channel established to {name} via jump server {jump_server_conf.get('name', jump_server_conf['host'])}.")
         else:
-            print(f"Connecting directly to {name}")
+            logger.info(f"Connecting directly to {name} ({target_server_config['host']}).")
             # For direct connection, sock remains None, paramiko handles it.
 
         target_client.connect(**target_ssh_args)
+        logger.info(f"Successfully connected to target server: {name} ({target_server_config['host']}).")
 
         # --- Shell commands (same as before) ---
         delimiter = "###STATS_DELIMITER###"
@@ -390,9 +476,10 @@ printf "%s{delimiter}%s{delimiter}%s{delimiter}%s{delimiter}%s" \
         ssh_stderr_output = stderr.read().decode(errors='ignore').strip()
         ssh_exit_status = stdout.channel.recv_exit_status()
 
-        # print(f"DEBUG ({name}): SSH Exit Status: {ssh_exit_status}")
-        # print(f"DEBUG ({name}): Raw Output from SSH: '{raw_output}'")
-        # print(f"DEBUG ({name}): Stderr from SSH command execution: '{ssh_stderr_output}'")
+        logger.debug(f"Target {name}: SSH Exit Status: {ssh_exit_status}")
+        logger.debug(f"Target {name}: Raw Output from SSH command: '{raw_output}'")
+        if ssh_stderr_output: # Only log if there's actual stderr content
+            logger.debug(f"Target {name}: Stderr from SSH command execution: '{ssh_stderr_output}'")
 
         current_error_messages = []
         if ssh_exit_status == 0 and raw_output:
@@ -435,21 +522,29 @@ printf "%s{delimiter}%s{delimiter}%s{delimiter}%s{delimiter}%s" \
                 else: base_result['status'] = 'error'; base_result['error_message'] = " | ".join(current_error_messages)
             else: base_result['status'] = 'error'; base_result['error_message'] = f"Output format error. Expected 5 parts, got {len(parts)}. Output: '{raw_output[:150]}...'"
         elif ssh_exit_status != 0:
-            base_result['status'] = 'error'; err_msg = f"Remote script failed (exit: {ssh_exit_status})."
+            base_result['status'] = 'error'; err_msg = f"Remote script execution failed on {name} (exit code: {ssh_exit_status})."
             if ssh_stderr_output: err_msg += f" Stderr: {ssh_stderr_output}"
-            elif raw_output: err_msg += f" Stdout: {raw_output[:100]}..."
+            elif raw_output: err_msg += f" Stdout (partial): {raw_output[:100]}..." # Include some stdout if stderr is empty
+            else: err_msg += " No stdout or stderr received."
             base_result['error_message'] = err_msg
-        elif not raw_output:
-            base_result['status'] = 'error'; base_result['error_message'] = f"No output from remote command (exit: {ssh_exit_status})."
+            logger.warning(f"Remote script execution failed for {name}. Exit code: {ssh_exit_status}. Stderr: '{ssh_stderr_output}'. Stdout: '{raw_output[:150]}...'")
+        elif not raw_output and ssh_exit_status == 0 : # Command seemingly succeeded but no output
+            base_result['status'] = 'error'; base_result['error_message'] = f"No output from remote command on {name}, though script reported success (exit code 0)."
+            logger.warning(f"No output from remote command for {name} (exit code 0). Stderr: '{ssh_stderr_output}'.")
+        elif ssh_exit_status !=0 and not raw_output and not ssh_stderr_output: # Catch all for other command failures
+             base_result['status'] = 'error'; base_result['error_message'] = f"Remote command on {name} failed (exit code: {ssh_exit_status}) with no stdout/stderr."
+             logger.warning(f"Remote command on {name} failed (exit code: {ssh_exit_status}) with no stdout/stderr.")
 
-    except paramiko.AuthenticationException as e: # Specific to the current connection attempt
-        base_result['status'] = 'error'; base_result['error_message'] = f"Authentication failed: {str(e)}"
-    except paramiko.SSHException as e: # Includes timeouts, channel errors
-        base_result['status'] = 'error'; base_result['error_message'] = f"SSH error: {str(e)}"
-    except Exception as e:
-        base_result['status'] = 'error'; base_result['error_message'] = f"General error: {str(e)}"
-        # import traceback
-        # print(f"DEBUG ({name}): General error traceback: {traceback.format_exc()}")
+
+    except paramiko.AuthenticationException as e:
+        base_result['status'] = 'error'; base_result['error_message'] = f"Authentication failed for {name}: {str(e)}"
+        logger.error(f"Authentication failed for {name} ({target_server_config['host']}): {e}", exc_info=True)
+    except paramiko.SSHException as e: # Includes timeouts, other SSH layer errors
+        base_result['status'] = 'error'; base_result['error_message'] = f"SSH connection error for {name}: {str(e)}"
+        logger.error(f"SSH error for {name} ({target_server_config['host']}): {e}", exc_info=True)
+    except Exception as e: # Catch-all for other unexpected errors
+        base_result['status'] = 'error'; base_result['error_message'] = f"A general error occurred while processing {name}: {str(e)}"
+        logger.error(f"General error processing {name} ({target_server_config['host']}): {e}", exc_info=True)
     finally:
         target_client.close()
         if jump_client:
@@ -466,8 +561,12 @@ printf "%s{delimiter}%s{delimiter}%s{delimiter}%s{delimiter}%s" \
     if base_result['status'] == 'error' and not base_result['error_message']:
         base_result['error_message'] = "Unknown error during data retrieval."
     if base_result['error_message'] and base_result['status'] == 'error':
-        print(f"FINAL Error for {name} ({target_server_config['host']}): {base_result['error_message']}")
-    # print(f"FINAL base_result for {name}: {base_result}")
+        # This log can be redundant if the error was already logged specifically.
+        # Kept for a summary, but could be logger.debug if too noisy.
+        logger.info(f"Final error state for {name} ({target_server_config['host']}): {base_result['error_message']}")
+    elif base_result['status'] == 'online':
+        logger.info(f"Successfully fetched stats for {name} ({target_server_config['host']}).")
+    # logger.debug(f"FINAL base_result for {name}: {base_result}") # Potentially very verbose
 
     return base_result
 
@@ -491,17 +590,24 @@ def parse_remote_server_configs():
                 'jump_server_index': os.getenv(f'REMOTE_SERVER_{i}_JUMP_SERVER'),
                 'is_local': os.getenv(f'REMOTE_SERVER_{i}_IS_LOCAL', 'false').lower() == 'true' # New flag
             }
+            # Basic validation: user is mandatory for any remote (non-local or local via SSH)
             if not server_conf['user']:
-                print(f"Warning: REMOTE_SERVER_{i}_USER not set. Skipping server {server_conf['name']}.")
-            elif not server_conf['password'] and not server_conf['key_path'] and server_conf['host'] not in ['localhost', '127.0.0.1']: # Allow no auth for true local if desired and handled
-                # For true local (localhost), psutil could be used directly if we adapt get_remote_server_stats
-                # For now, it will try SSH even for local unless 'is_local' is used to bypass SSH
-                print(f"Warning: Neither PASSWORD nor KEY_PATH set for REMOTE_SERVER_{i}. Skipping server {server_conf['name']}.")
+                logger.warning(f"REMOTE_SERVER_{i}_USER not set for host {server_conf.get('host', 'N/A')}. Skipping server '{server_conf['name']}'.")
+            # Auth method (pass/key) is mandatory if it's not explicitly an 'is_local' server where SSH might be skipped
+            elif not server_conf.get('is_local', False) and not server_conf['password'] and not server_conf['key_path']:
+                logger.warning(f"Neither PASSWORD nor KEY_PATH set for non-local REMOTE_SERVER_{i} ('{server_conf['name']}'). Skipping this server.")
+            # Even if 'is_local' is true, if no direct psutil path is implemented, it might still need SSH creds.
+            # For now, assume 'is_local' might bypass SSH need, but if creds are missing, it might fail later if SSH is attempted.
+            # This part of logic might need refinement based on how 'is_local' is truly handled in stat fetching.
             else:
                 servers_map[str(i)] = server_conf
             i += 1
         else:
-            break
+            break # No more servers defined by environment variables
+    if not servers_map:
+        logger.warning("No remote server configurations found or parsed successfully.")
+    else:
+        logger.info(f"Successfully parsed {len(servers_map)} remote server configuration(s).")
     return servers_map
 
 # --- Flask Routes ---
@@ -515,9 +621,9 @@ def index():
             if interval > 0:
                 detail_refresh_interval = interval
             else:
-                print(f"Warning: {DETAIL_VIEW_REFRESH_INTERVAL_MS_ENV_VAR} is not a positive integer ('{detail_refresh_interval_str}'). Using default: {DEFAULT_DETAIL_VIEW_REFRESH_INTERVAL_MS}ms.")
+                logger.warning(f"{DETAIL_VIEW_REFRESH_INTERVAL_MS_ENV_VAR} is not a positive integer ('{detail_refresh_interval_str}'). Using default: {DEFAULT_DETAIL_VIEW_REFRESH_INTERVAL_MS}ms.")
         except ValueError:
-            print(f"Warning: Invalid value for {DETAIL_VIEW_REFRESH_INTERVAL_MS_ENV_VAR} ('{detail_refresh_interval_str}'). Expected an integer. Using default: {DEFAULT_DETAIL_VIEW_REFRESH_INTERVAL_MS}ms.")
+            logger.warning(f"Invalid value for {DETAIL_VIEW_REFRESH_INTERVAL_MS_ENV_VAR} ('{detail_refresh_interval_str}'). Expected an integer. Using default: {DEFAULT_DETAIL_VIEW_REFRESH_INTERVAL_MS}ms.")
 
     server_list_refresh_interval_str = os.getenv(SERVER_LIST_REFRESH_INTERVAL_MS_ENV_VAR)
     server_list_refresh_interval = DEFAULT_SERVER_LIST_REFRESH_INTERVAL_MS
@@ -527,9 +633,9 @@ def index():
             if interval > 0:
                 server_list_refresh_interval = interval
             else:
-                print(f"Warning: {SERVER_LIST_REFRESH_INTERVAL_MS_ENV_VAR} is not a positive integer ('{server_list_refresh_interval_str}'). Using default: {DEFAULT_SERVER_LIST_REFRESH_INTERVAL_MS}ms.")
+                logger.warning(f"{SERVER_LIST_REFRESH_INTERVAL_MS_ENV_VAR} is not a positive integer ('{server_list_refresh_interval_str}'). Using default: {DEFAULT_SERVER_LIST_REFRESH_INTERVAL_MS}ms.")
         except ValueError:
-            print(f"Warning: Invalid value for {SERVER_LIST_REFRESH_INTERVAL_MS_ENV_VAR} ('{server_list_refresh_interval_str}'). Expected an integer. Using default: {DEFAULT_SERVER_LIST_REFRESH_INTERVAL_MS}ms.")
+            logger.warning(f"Invalid value for {SERVER_LIST_REFRESH_INTERVAL_MS_ENV_VAR} ('{server_list_refresh_interval_str}'). Expected an integer. Using default: {DEFAULT_SERVER_LIST_REFRESH_INTERVAL_MS}ms.")
 
     return render_template('index.html', detail_refresh_interval=detail_refresh_interval, server_list_refresh_interval=server_list_refresh_interval)
 
@@ -587,10 +693,8 @@ def api_historical_stats():
         return jsonify(data)
 
     except Exception as e:
-        print(f"Error in api_historical_stats for server '{target_server_name}': {e}")
-        # import traceback
-        # traceback.print_exc() # For more detailed debugging if needed
-        return jsonify({"error": str(e), "server_name": target_server_name}), 500
+        logger.error(f"Error in api_historical_stats for server '{target_server_name}': {e}", exc_info=True)
+        return jsonify({"error": f"An error occurred while fetching historical stats for {target_server_name}.", "server_name": target_server_name}), 500
     finally:
         if 'conn' in locals() and conn:
             if 'cursor' in locals() and cursor:
@@ -642,19 +746,55 @@ def api_remote_servers_stats():
                 all_stats.append(stats)
             except Exception as exc:
                 server_name = target_config.get('name', 'Unknown Server')
-                print(f'{server_name} (Host: {target_config.get("host")}) generated an exception during future.result(): {exc}')
+                host = target_config.get('host', 'N/A')
+                logger.error(f"Exception for server {server_name} (Host: {host}) during future.result() in api_remote_servers_stats: {exc}", exc_info=True)
                 all_stats.append({
-                    'name': server_name, 'host': target_config.get('host'), 'status': 'error',
-                    'error_message': f'Task execution failed: {str(exc)}',
+                    'name': server_name, 'host': host, 'status': 'error',
+                    'error_message': f'Task execution failed for {server_name}: {str(exc)}', # This message is sent to client
                     'cpu_percent': 0, 'cpu_cores': 0, 'cpu_model': 'N/A',
                     'ram_percent': 0, 'ram_total_gb': 0, 'ram_used_gb': 0,
                     'disk_percent': 0, 'disk_total_gb': 0, 'disk_used_gb': 0,
                 })
     return jsonify(all_stats)
 
+@app.route('/api/collector_status')
+def api_collector_status():
+    with collector_status_lock:
+        # Create a copy to avoid holding the lock while jsonify processes it
+        status_copy = collector_status_info.copy()
+    # Add a timestamp for when this API endpoint was called, distinct from status_updated_at
+    status_copy['api_fetch_time'] = datetime.datetime.now().isoformat()
+    return jsonify(status_copy)
 
 if __name__ == '__main__':
-    init_db()
-    collector_thread = threading.Thread(target=historical_data_collector, daemon=True)
+    logger.info("Application starting...")
+    init_db() # init_db now has its own logging
+    # Initialize configured_server_names once based on initial parsing, before thread starts
+    # This is because parse_remote_server_configs is called before the thread loop
+    # The historical_data_collector will then update counts and times.
+    try:
+        initial_configs = parse_remote_server_configs()
+        with collector_status_lock:
+            collector_status_info["servers_configured_count"] = len(initial_configs)
+            collector_status_info["configured_server_names"] = [
+                cfg.get('name', cfg.get('host', f"ServerIndex_{idx}"))
+                for idx, cfg in initial_configs.items()
+            ]
+            # Add local if not covered by IS_LOCAL
+            if not any(s_cfg.get('is_local', False) for s_cfg in initial_configs.values()) and 'local' not in collector_status_info["configured_server_names"]:
+                 collector_status_info["configured_server_names"].append('local')
+                 collector_status_info["servers_configured_count"] +=1
+
+    except Exception as e:
+        logger.error(f"Failed to perform initial parse of server_configs for collector_status: {e}", exc_info=True)
+        # Default to local if parsing fails completely
+        with collector_status_lock:
+            collector_status_info["servers_configured_count"] = 1
+            collector_status_info["configured_server_names"] = ['local']
+
+
+    collector_thread = threading.Thread(target=historical_data_collector, name="HistoricalDataCollectorThread", daemon=True)
     collector_thread.start()
+    logger.info("Historical data collector thread started.")
+    logger.info("Starting Flask development server. Note: Flask's internal logs may also be shown if DEBUG is true.")
     app.run(debug=True, host='0.0.0.0', port=5000)
