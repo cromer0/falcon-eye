@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, session, redirect, url_for, flash
 import psutil
 import sqlite3
 import threading
@@ -50,6 +50,11 @@ SERVER_LIST_REFRESH_INTERVAL_MS_ENV_VAR = 'SERVER_LIST_REFRESH_INTERVAL_MS'
 DEFAULT_SERVER_LIST_REFRESH_INTERVAL_MS = 15000
 
 app = Flask(__name__)
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your_default_secret_key')
+
+# --- Credentials ---
+APP_USERNAME = os.getenv('APP_USERNAME', 'admin')
+APP_PASSWORD = os.getenv('APP_PASSWORD', 'password')
 
 # --- Database Connection Helper ---
 def get_db_connection():
@@ -507,6 +512,8 @@ def parse_remote_server_configs():
 # --- Flask Routes ---
 @app.route('/')
 def index():
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
     detail_refresh_interval_str = os.getenv(DETAIL_VIEW_REFRESH_INTERVAL_MS_ENV_VAR)
     detail_refresh_interval = DEFAULT_DETAIL_VIEW_REFRESH_INTERVAL_MS
     if detail_refresh_interval_str:
@@ -532,6 +539,25 @@ def index():
             print(f"Warning: Invalid value for {SERVER_LIST_REFRESH_INTERVAL_MS_ENV_VAR} ('{server_list_refresh_interval_str}'). Expected an integer. Using default: {DEFAULT_SERVER_LIST_REFRESH_INTERVAL_MS}ms.")
 
     return render_template('index.html', detail_refresh_interval=detail_refresh_interval, server_list_refresh_interval=server_list_refresh_interval)
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        if username == APP_USERNAME and password == APP_PASSWORD:
+            session['logged_in'] = True
+            flash('You were successfully logged in!', 'success')
+            return redirect(url_for('index'))
+        else:
+            flash('Invalid credentials. Please try again.', 'danger')
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.pop('logged_in', None)
+    flash('You were successfully logged out.', 'info')
+    return redirect(url_for('login'))
 
 @app.route('/api/current_stats')
 def api_current_stats(): return jsonify(get_current_stats())

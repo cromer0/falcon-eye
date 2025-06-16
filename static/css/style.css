@@ -60,14 +60,53 @@ body {
     color: var(--text-color);
 }
 
+/* Header styles */
 header {
-    background-color: var(--primary-color);
-    color: white;
-    padding: 15px 25px;
+    /* Existing styles, ensure display: flex, justify-content: space-between, align-items: center are present */
     display: flex;
     justify-content: space-between;
     align-items: center;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 10px 25px; /* Adjusted padding slightly */
+    background-color: var(--primary-color); /* Moved from original header block */
+    color: white; /* Moved from original header block */
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1); /* Moved from original header block */
+}
+
+.header-content {
+    display: flex;
+    align-items: center;
+}
+
+#headerLogo {
+    height: 30px; /* Adjust as needed */
+    margin-right: 15px;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+}
+
+#logoutButton {
+    padding: 8px 15px;
+    background-color: var(--card-bg-color);
+    color: var(--primary-color);
+    border: 1px solid var(--primary-color);
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: background-color 0.2s, color 0.2s;
+    margin-left: 10px; /* Or margin-right on darkModeToggle */
+}
+
+body.dark-mode #logoutButton {
+    background-color: var(--bg-color); /* Consistent with darkModeToggle */
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+#logoutButton:hover {
+    opacity: 0.9;
 }
 
 header h1 {
@@ -178,6 +217,87 @@ body.dark-mode .gauge-wrapper {
     margin-top: 0;
     margin-bottom: 15px;
     color: var(--text-color);
+}
+
+/* Login Page Styles */
+/* Making body selector more specific for login page context if needed, or assuming it's fine globally for login */
+.login-page-body { /* Use a class on body tag on login.html if this needs to be specific */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    /* background-color and color are already set by global body styles */
+}
+.login-container {
+    background-color: var(--card-bg-color);
+    padding: 40px;
+    border-radius: 8px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    width: 100%;
+    max-width: 400px;
+    text-align: center;
+}
+.login-logo img {
+    max-width: 150px;
+    margin-bottom: 20px;
+}
+.login-container h1 { /* This will conflict with header h1 if not careful. Assuming login.html h1 is different. */
+    color: var(--primary-color);
+    margin-bottom: 20px;
+    font-size: 1.8em; /* Example, adjust as needed */
+}
+.form-group {
+    margin-bottom: 20px;
+    text-align: left;
+}
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+}
+.form-group input[type="text"],
+.form-group input[type="password"] {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    box-sizing: border-box;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+}
+.login-button {
+    background-color: var(--primary-color);
+    color: white;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 1em;
+    width: 100%;
+    transition: background-color 0.2s;
+}
+.login-button:hover {
+    opacity: 0.9;
+}
+.flash-messages {
+    list-style: none;
+    padding: 0;
+    margin-bottom: 20px;
+}
+.flash-messages li {
+    padding: 10px;
+    border-radius: 5px;
+    margin-bottom: 10px;
+}
+.flash-messages .danger {
+    background-color: #f8d7da; /* Bootstrap danger */
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+body.dark-mode .flash-messages .danger {
+    background-color: #582c33;
+    color: #f8d7da;
+    border: 1px solid #a13c49;
 }
 
 .gauge {
