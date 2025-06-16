@@ -31,6 +31,12 @@ DATA_GATHERING_INTERVAL_SECONDS_ENV_VAR = 'DATA_GATHERING_INTERVAL_SECONDS'
 MAX_HISTORICAL_ENTRIES = 1440
 SSH_TIMEOUT = 25
 
+# --- Logger Setup ---
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(threadName)s - %(module)s - %(funcName)s - %(message)s',
+                    handlers=[logging.StreamHandler()])
+logger = logging.getLogger(__name__)
+
 # Determine the actual collection interval
 current_collection_interval = HISTORICAL_DATA_COLLECTION_INTERVAL
 data_gathering_interval_str = os.getenv(DATA_GATHERING_INTERVAL_SECONDS_ENV_VAR)
@@ -49,12 +55,6 @@ DETAIL_VIEW_REFRESH_INTERVAL_MS_ENV_VAR = 'DETAIL_VIEW_REFRESH_INTERVAL_MS'
 DEFAULT_DETAIL_VIEW_REFRESH_INTERVAL_MS = 3000
 SERVER_LIST_REFRESH_INTERVAL_MS_ENV_VAR = 'SERVER_LIST_REFRESH_INTERVAL_MS'
 DEFAULT_SERVER_LIST_REFRESH_INTERVAL_MS = 15000
-
-# --- Logger Setup ---
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(threadName)s - %(module)s - %(funcName)s - %(message)s',
-                    handlers=[logging.StreamHandler()])
-logger = logging.getLogger(__name__)
 
 # --- Collector Status Globals ---
 collector_status_info = {
