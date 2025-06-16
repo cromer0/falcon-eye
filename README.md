@@ -68,7 +68,7 @@ FalconEye is a web application to monitor server performance metrics for local a
     *   For PostgreSQL, ensure the specified database exists and the provided user has permissions to create tables.
 
 6.  **Custom Logo (Optional):**
-    *   The application includes a FalconEye logo at `static/images/logo.svg`.
+    *   The application includes a FalconEye logo at `static/images/logo.png`.
     *   To use your own logo, replace this file with your desired image (e.g., an SVG or PNG file).
     *   If you use a different filename or path, update the references in `templates/index.html` and `templates/login.html`.
 

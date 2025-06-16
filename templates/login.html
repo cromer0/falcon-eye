@@ -5,15 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - FalconEye</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link rel="icon" href="{{ url_for('static', filename='images/logo.svg') }}">
+    <link rel="icon" href="{{ url_for('static', filename='images/logo.png') }}">
 </head>
 <body class="light-mode login-page-body"> {# Default to light, JS can toggle #}
 
     <div class="login-container">
         <div class="login-logo">
-            <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="App Logo">
+            <img src="{{ url_for('static', filename='images/logo.png') }}" alt="App Logo">
         </div>
-        <h1>FalconEye Login</h1>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}

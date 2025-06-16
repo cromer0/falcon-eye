@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FalconEye Server Monitor</title>
-    <link rel="icon" href="{{ url_for('static', filename='images/logo.svg') }}" type="image/svg+xml">
+    <link rel="icon" href="{{ url_for('static', filename='images/logo.png') }}" type="image/png">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
@@ -13,13 +13,13 @@
 
     <header>
         <div class="header-content">
-            <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="FalconEye Logo" id="headerLogo">
+            <img src="{{ url_for('static', filename='images/logo.png') }}" alt="FalconEye Logo" id="headerLogo">
             <h1>FalconEye Server Monitor</h1>
         </div>
         <div class="header-actions">
-            <form action="{{ url_for('logout') }}" method="post" style="display: inline;">
+            <a href="{{ url_for('logout') }}" style="display: inline;">
                 <button type="submit" id="logoutButton">Logout</button>
-            </form>
+            </a>
             <button id="darkModeToggle">☾</button>
         </div>
     </header>
