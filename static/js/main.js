@@ -39,6 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let allServersData = []; // Cache for server list data
     let selectedServerData = null; // Cache for the currently selected server's full data
     let detailViewInterval; // For auto-refreshing detail view
+    let currentHistoricalAllMetrics = { labels: [], cpu: [], ram: [], disk: [] }; // For combined tooltips
 
     // --- Config ---
     // Use interval from Flask for server list, with a fallback to 15000ms
@@ -99,7 +100,7 @@ const getChartJsThemeOptions = () => {
             chart.update('none');
         }
     }
-     function createDetailHistoricalChart(canvas, label, data, color) { // Takes canvas context directly
+     function createDetailHistoricalChart(canvas, label, data, color, allMetricsData) { // Takes canvas context directly and allMetricsData
         const themeOptions = getChartJsThemeOptions(); // Ensure this is defined
         return new Chart(canvas, {
             type: 'line',
@@ -111,11 +112,72 @@ const getChartJsThemeOptions = () => {
                     fill: true, tension: 0.4, pointRadius: 0, pointHoverRadius: 5, borderWidth: 1.5
                 }]
             },
-            options: { /* ... (your existing historical chart options, make sure scales use themeOptions) ... */
+            options: {
                 responsive: true, maintainAspectRatio: false,
-                scales: { x: { ...themeOptions.scales.x, type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, HH:mm:ss', displayFormats: { hour: 'HH:mm' }}, title: { display: true, text: 'Time', color: themeOptions.scales.x.ticks.color, font: {size: 12, weight: 'bold'} } },
-                          y: { ...themeOptions.scales.y, title: { display: true, text: 'Usage (%)', color: themeOptions.scales.y.ticks.color, font: {size: 12, weight: 'bold'} } } },
-                plugins: { ...themeOptions.plugins, legend: { ...themeOptions.plugins.legend, position: 'top', align: 'end' }}
+                scales: {
+                    x: { ...themeOptions.scales.x, type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, HH:mm:ss', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: themeOptions.scales.x.ticks.color, font: { size: 12, weight: 'bold' } } },
+                    y: { ...themeOptions.scales.y, title: { display: true, text: 'Usage (%)', color: themeOptions.scales.y.ticks.color, font: { size: 12, weight: 'bold' } } }
+                },
+                plugins: {
+                    ...themeOptions.plugins,
+                    legend: { ...themeOptions.plugins.legend, position: 'top', align: 'end' },
+                    tooltip: {
+                        ...themeOptions.plugins.tooltip,
+                        mode: 'index', // Show tooltip for all datasets at that index
+                        intersect: false, // Tooltip will appear even if not directly hovering over a point
+                        callbacks: {
+                            title: function(tooltipItems) {
+                                // Format the timestamp for the title
+                                if (tooltipItems.length > 0) {
+                                    const dataIndex = tooltipItems[0].dataIndex;
+                                    if (allMetricsData && allMetricsData.labels && allMetricsData.labels[dataIndex]) {
+                                        return new Date(allMetricsData.labels[dataIndex]).toLocaleString();
+                                    }
+                                }
+                                return '';
+                            },
+                            label: function(tooltipItem) {
+                                // This callback is called for each dataset.
+                                // We will build a custom multi-line tooltip in the footer or by returning an array of strings.
+                                // For simplicity, we let title handle the timestamp and will show current metric here,
+                                // but the more comprehensive tooltip showing ALL metrics will be managed by a custom external tooltip or by modifying this further.
+                                // The default 'label' callback shows the current dataset's value.
+                                // To show ALL metrics, we'd need to access allMetricsData here for each dataset.
+                                // However, the 'label' callback is for *each dataset line* in the tooltip.
+                                // A better approach for a combined tooltip is to use the 'footer' callback or a custom external tooltip.
+                                // For this iteration, let's ensure the title is set, and then we'll refine.
+                                // The prompt asks for CPU, RAM, Disk in the *same* tooltip.
+                                // This requires access to allMetricsData.cpu, .ram, .disk at tooltipItem.dataIndex.
+
+                                // This will be called for each dataset, so we return only the relevant line.
+                                // The final combined tooltip will be assembled by Chart.js if mode: 'index' is effective.
+                                // Let's try returning an array of lines from the 'label' callback of the *first* dataset
+                                // and empty from others. Or, more simply, use afterBody/beforeBody.
+                                return `${tooltipItem.dataset.label}: ${tooltipItem.formattedValue}%`;
+                            },
+                            afterBody: function(tooltipItems) {
+                                // This callback allows us to add more lines after the default lines.
+                                // We will construct the full CPU, RAM, Disk display here.
+                                const lines = [];
+                                if (tooltipItems.length > 0) {
+                                    const dataIndex = tooltipItems[0].dataIndex;
+                                    if (allMetricsData && allMetricsData.labels && allMetricsData.labels[dataIndex]) {
+                                        if (allMetricsData.cpu && allMetricsData.cpu[dataIndex] !== undefined) {
+                                            lines.push(`CPU: ${allMetricsData.cpu[dataIndex].toFixed(1)}%`);
+                                        }
+                                        if (allMetricsData.ram && allMetricsData.ram[dataIndex] !== undefined) {
+                                            lines.push(`RAM: ${allMetricsData.ram[dataIndex].toFixed(1)}%`);
+                                        }
+                                        if (allMetricsData.disk && allMetricsData.disk[dataIndex] !== undefined) {
+                                            lines.push(`Disk: ${allMetricsData.disk[dataIndex].toFixed(1)}%`);
+                                        }
+                                    }
+                                }
+                                return lines;
+                            }
+                        }
+                    }
+                }
             }
         });
     }
@@ -125,6 +187,7 @@ const getChartJsThemeOptions = () => {
         if (detailHistoricalDiskChart) detailHistoricalDiskChart.destroy();
         detailHistoricalCpuChart = null; detailHistoricalRamChart = null; detailHistoricalDiskChart = null;
         historicalChartsInitializedForDetail = false;
+        currentHistoricalAllMetrics = { labels: [], cpu: [], ram: [], disk: [] }; // Reset stored data
         // Hide chart containers
         document.querySelectorAll('#detailHistoricalChartContainer .chart-container').forEach(c => c.style.display = 'none');
     }
@@ -161,17 +224,18 @@ const getChartJsThemeOptions = () => {
             detailRamGaugeChart = createDetailGauge('detailRamGauge', selectedServerData.ram_percent || 0, getCssVariable('--gauge-ram-color'));
             detailDiskGaugeChart = createDetailGauge('detailDiskGauge', selectedServerData.disk_percent || 0, getCssVariable('--gauge-disk-color'));
 
-            // Re-theme historical charts if they exist
-            if (historicalChartsInitializedForDetail) {
-                const themeOpts = getChartJsThemeOptions();
-                [detailHistoricalCpuChart, detailHistoricalRamChart, detailHistoricalDiskChart].forEach(chart => {
-                    if (chart) {
-                        // Update chart options based on themeOpts
-                        chart.options.scales.x.ticks.color = themeOpts.scales.x.ticks.color;
-                        // ... (full theme update for x and y scales, legend)
-                        chart.update();
-                    }
-                });
+            // Re-create historical charts if they exist and data is available
+            if (historicalChartsInitializedForDetail && currentHistoricalAllMetrics.labels.length > 0) {
+                // Destroy existing charts first
+                if (detailHistoricalCpuChart) detailHistoricalCpuChart.destroy();
+                if (detailHistoricalRamChart) detailHistoricalRamChart.destroy();
+                if (detailHistoricalDiskChart) detailHistoricalDiskChart.destroy();
+
+                // Re-create with current data and new theme options (implicitly picked up by createDetailHistoricalChart)
+                detailHistoricalCpuChart = createDetailHistoricalChart(detailHistCpuChartEl, 'CPU Usage', { labels: currentHistoricalAllMetrics.labels, values: currentHistoricalAllMetrics.cpu }, getCssVariable('--chart-line-cpu'), currentHistoricalAllMetrics);
+                detailHistoricalRamChart = createDetailHistoricalChart(detailHistRamChartEl, 'RAM Usage', { labels: currentHistoricalAllMetrics.labels, values: currentHistoricalAllMetrics.ram }, getCssVariable('--chart-line-ram'), currentHistoricalAllMetrics);
+                detailHistoricalDiskChart = createDetailHistoricalChart(detailHistDiskChartEl, 'Disk Usage', { labels: currentHistoricalAllMetrics.labels, values: currentHistoricalAllMetrics.disk }, getCssVariable('--chart-line-disk'), currentHistoricalAllMetrics);
+                // No need to call chart.update() as they are new charts
             }
         }
     }
@@ -371,16 +435,24 @@ const getChartJsThemeOptions = () => {
         if (selectedServerData) {
             historicalDataMessageEl.textContent = "Loading historical data...";
             historicalDataMessageEl.style.display = 'block';
-            fetch('/api/historical_stats') // This endpoint is for the *local* server's DB
+            const serverName = selectedServerData.name;
+            const url = `/api/historical_stats?server_name=${encodeURIComponent(serverName)}`;
+            fetch(url)
                 .then(response => response.json())
                 .then(data => {
-                    if (data.labels && data.labels.length > 0) {
+                    if (data.labels && data.labels.length > 0 && data.cpu_data && data.ram_data && data.disk_data) {
                         historicalDataMessageEl.style.display = 'none';
                         document.querySelectorAll('#detailHistoricalChartContainer .chart-container').forEach(c => c.style.display = 'block');
 
-                        detailHistoricalCpuChart = createDetailHistoricalChart(detailHistCpuChartEl, 'CPU Usage', { labels: data.labels, values: data.cpu_data }, getCssVariable('--chart-line-cpu'));
-                        detailHistoricalRamChart = createDetailHistoricalChart(detailHistRamChartEl, 'RAM Usage', { labels: data.labels, values: data.ram_data }, getCssVariable('--chart-line-ram'));
-                        detailHistoricalDiskChart = createDetailHistoricalChart(detailHistDiskChartEl, 'Disk Usage', { labels: data.labels, values: data.disk_data }, getCssVariable('--chart-line-disk'));
+                        // Store all data for combined tooltips
+                        currentHistoricalAllMetrics.labels = data.labels;
+                        currentHistoricalAllMetrics.cpu = data.cpu_data;
+                        currentHistoricalAllMetrics.ram = data.ram_data;
+                        currentHistoricalAllMetrics.disk = data.disk_data;
+
+                        detailHistoricalCpuChart = createDetailHistoricalChart(detailHistCpuChartEl, 'CPU Usage', { labels: data.labels, values: data.cpu_data }, getCssVariable('--chart-line-cpu'), currentHistoricalAllMetrics);
+                        detailHistoricalRamChart = createDetailHistoricalChart(detailHistRamChartEl, 'RAM Usage', { labels: data.labels, values: data.ram_data }, getCssVariable('--chart-line-ram'), currentHistoricalAllMetrics);
+                        detailHistoricalDiskChart = createDetailHistoricalChart(detailHistDiskChartEl, 'Disk Usage', { labels: data.labels, values: data.disk_data }, getCssVariable('--chart-line-disk'), currentHistoricalAllMetrics);
                         historicalChartsInitializedForDetail = true;
                         applyThemeToVisuals(); // Apply theme after creation
                     } else {
@@ -388,11 +460,11 @@ const getChartJsThemeOptions = () => {
                     }
                 })
                 .catch(error => {
-                    console.error("Error fetching historical data:", error);
+                    console.error(`Error fetching historical data for ${serverName}:`, error);
                     historicalDataMessageEl.textContent = "Error loading historical data.";
                 });
         } else {
-            historicalDataMessageEl.textContent = "Historical data is only available for the local server instance defined in the configuration.";
+            historicalDataMessageEl.textContent = "Historical data is only available for the local server instance defined in the configuration."; // This message might need adjustment if historical data can be fetched for remotes.
             historicalDataMessageEl.style.display = 'block';
         }
     }
