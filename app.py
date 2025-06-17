@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 import psycopg2
 import psycopg2.extras # For dictionary cursor
 import logging
+import uuid
 
 # --- Configuration ---
 load_dotenv()
@@ -25,6 +26,16 @@ POSTGRES_PORT = os.getenv('POSTGRES_PORT', '5432')
 POSTGRES_USER = os.getenv('POSTGRES_USER')
 POSTGRES_PASSWORD = os.getenv('POSTGRES_PASSWORD')
 POSTGRES_DBNAME = os.getenv('POSTGRES_DBNAME')
+
+# --- SMTP Configuration for Email Alerts ---
+SMTP_HOST = os.getenv('SMTP_HOST')
+SMTP_PORT = int(os.getenv('SMTP_PORT', '587')) # Default to 587 for TLS
+SMTP_USER = os.getenv('SMTP_USER')
+SMTP_PASSWORD = os.getenv('SMTP_PASSWORD')
+SMTP_USE_TLS = os.getenv('SMTP_USE_TLS', 'true').lower() == 'true'
+SMTP_USE_SSL = os.getenv('SMTP_USE_SSL', 'false').lower() == 'true'
+EMAIL_FROM_ADDRESS = os.getenv('EMAIL_FROM_ADDRESS', f"falconeye-alerts@{(os.uname().nodename if hasattr(os, 'uname') else 'localhost')}")
+
 
 HISTORICAL_DATA_COLLECTION_INTERVAL = 60  # Default value
 DATA_GATHERING_INTERVAL_SECONDS_ENV_VAR = 'DATA_GATHERING_INTERVAL_SECONDS'
@@ -68,6 +79,11 @@ collector_status_info = {
     "status_updated_at": None # Timestamp of when this status dict was last updated
 }
 collector_status_lock = threading.Lock()
+
+# --- Alerting Configuration ---
+ALERT_COOLDOWN_MINUTES = int(os.getenv('ALERT_COOLDOWN_MINUTES', '30'))
+# Minimum percentage of expected data points in a window required to evaluate an alert
+MINIMUM_DATA_POINTS_FOR_ALERT_PERCENTAGE = float(os.getenv('MINIMUM_DATA_POINTS_FOR_ALERT_PERCENTAGE', '0.8'))
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your_default_secret_key')
@@ -136,10 +152,50 @@ def init_db():
             # Index for faster queries on server_name and timestamp
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_server_timestamp ON stats (server_name, timestamp);")
 
+            # --- Create alerts table ---
+            logger.info(f"Creating/ensuring 'alerts' table exists for {DATABASE_TYPE}...")
+            if DATABASE_TYPE == 'sqlite':
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS alerts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        alert_name TEXT NOT NULL,
+                        server_name TEXT NOT NULL,
+                        resource_type TEXT NOT NULL,
+                        threshold_percentage REAL NOT NULL,
+                        time_window_minutes INTEGER NOT NULL,
+                        emails TEXT NOT NULL,
+                        is_enabled BOOLEAN NOT NULL DEFAULT 1,
+                        last_triggered_at TIMESTAMP NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                # Example: Index on alert_name and server_name for faster lookups
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_alerts_name_server ON alerts (alert_name, server_name);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_alerts_enabled_resource ON alerts (is_enabled, resource_type, server_name);")
+            elif DATABASE_TYPE == 'postgresql':
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS alerts (
+                        id SERIAL PRIMARY KEY,
+                        alert_name TEXT NOT NULL,
+                        server_name TEXT NOT NULL,
+                        resource_type TEXT NOT NULL,
+                        threshold_percentage REAL NOT NULL,
+                        time_window_minutes INTEGER NOT NULL,
+                        emails TEXT NOT NULL,
+                        is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                        last_triggered_at TIMESTAMPTZ NULL,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                # Example: Index on alert_name and server_name for faster lookups
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_alerts_name_server ON alerts (alert_name, server_name);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_alerts_enabled_resource ON alerts (is_enabled, resource_type, server_name);")
+            logger.info(f"'alerts' table ready for {DATABASE_TYPE}.")
+
         conn.commit()
-        logger.info(f"Database schema initialized successfully for {DATABASE_TYPE}.")
+        logger.info(f"Database schema initialization, including 'alerts' table, completed successfully for {DATABASE_TYPE}.")
     except Exception as e:
-        logger.error(f"Error during database initialization: {e}", exc_info=True)
+        logger.error(f"Error during database initialization (including alerts table): {e}", exc_info=True)
         # Depending on the error, you might want to raise it or handle it differently
     finally:
         if 'conn' in locals() and conn:
@@ -238,31 +294,39 @@ def historical_data_collector():
     # Fetch server configurations once, assuming they don't change at runtime.
     # If they can change, this should be moved inside the loop.
     try:
-        server_configs_map = parse_remote_server_configs() # This function will log its own details
+        server_configs_map = parse_remote_server_configs()
         logger.info(f"Historical data collector initialized with {len(server_configs_map)} remote server(s) configurations loaded.")
-        with collector_status_lock:
-            collector_status_info["servers_configured_count"] = len(server_configs_map)
-            # Store names derived from config: name, then host, then a generic "ServerIndex_X"
-            collector_status_info["configured_server_names"] = [
-                cfg.get('name', cfg.get('host', f"ServerIndex_{idx}"))
-                for idx, cfg in server_configs_map.items()
-            ]
-            # Add 'local' if it's not already effectively configured (e.g. via IS_LOCAL flag for a config entry)
-            # This ensures 'local' is listed if it's implicitly monitored.
-            is_local_explicitly_configured = any(s_cfg.get('is_local', False) for s_cfg in server_configs_map.values())
-            if not is_local_explicitly_configured and 'local' not in collector_status_info["configured_server_names"]:
-                 collector_status_info["configured_server_names"].append('local')
-                 collector_status_info["servers_configured_count"] +=1
 
+        # Consolidate server names for collector_status_info
+        temp_configured_server_names = []
+        has_explicit_local_entry = False
+        for idx, cfg in server_configs_map.items():
+            name = cfg.get('name', cfg.get('host', f"ServerIndex_{idx}"))
+            temp_configured_server_names.append(name)
+            if cfg.get('is_local', False):
+                has_explicit_local_entry = True
+            if name == 'local': # Also catches if a remote server is named 'local'
+                has_explicit_local_entry = True
+
+        # Add 'local' if no entry explicitly marks itself as local or is named 'local'
+        if not has_explicit_local_entry and 'local' not in temp_configured_server_names:
+            logger.info("Adding 'local' to configured_server_names for collector status as it was not explicitly defined or marked.")
+            temp_configured_server_names.append('local')
+
+        unique_server_names = sorted(list(set(temp_configured_server_names))) # Sort for consistent ordering
+
+        with collector_status_lock:
+            collector_status_info["configured_server_names"] = unique_server_names
+            collector_status_info["servers_configured_count"] = len(unique_server_names)
+            logger.info(f"Collector status initialized. Monitored servers: {collector_status_info['configured_server_names']}")
 
     except Exception as e:
         logger.critical(f"Could not parse server configurations for historical data collector: {e}", exc_info=True)
-        logger.info("Historical data collector will only collect local stats due to parsing error.")
-        server_configs_map = {} # Ensure it's a dict
+        logger.info("Historical data collector will default to local stats only due to parsing error.")
+        server_configs_map = {}
         with collector_status_lock:
-            collector_status_info["servers_configured_count"] = 0 # Or 1 if local is always assumed
-            collector_status_info["configured_server_names"] = ['local'] if not any(s_cfg.get('is_local', False) for s_cfg in server_configs_map.values()) else []
-
+            collector_status_info["servers_configured_count"] = 1
+            collector_status_info["configured_server_names"] = ['local'] # Default to 'local'
 
     while True:
         cycle_start_time = datetime.datetime.now()
@@ -323,13 +387,15 @@ def historical_data_collector():
                         processed_server_names_in_cycle.add(server_display_name)
                         continue
 
+                    logger.info(f"HDC: Processing remote server. Index: '{server_index}', Configured Name: '{server_display_name}'")
                     remote_processed_successfully = False
                     logger.info(f"Attempting to fetch historical stats for remote server: {server_display_name}")
                     processed_server_names_in_cycle.add(server_display_name)
                     try:
                         remote_stats = get_remote_server_stats(remote_server_config, server_configs_map)
                         if remote_stats and remote_stats.get('status') == 'online':
-                            logger.info(f"Storing historical stats for {remote_stats['name']}: CPU {remote_stats['cpu_percent']}%, RAM {remote_stats['ram_percent']}%, Disk {remote_stats['disk_percent']}%")
+                            logger.info(f"HDC: Stats fetched for Index: '{server_index}', Configured Name: '{server_display_name}', Result Name: '{remote_stats.get('name')}'. Preparing to store.")
+                            # logger.info(f"Storing historical stats for {remote_stats['name']}: CPU {remote_stats['cpu_percent']}%, RAM {remote_stats['ram_percent']}%, Disk {remote_stats['disk_percent']}%") # Original log
                             store_stats(
                                 remote_stats['name'],
                                 remote_stats['cpu_percent'],
@@ -338,11 +404,13 @@ def historical_data_collector():
                             )
                             remote_processed_successfully = True
                         else:
-                            error_msg = remote_stats.get('error_message', 'Unknown error')
-                            status_msg = remote_stats.get('status', 'unknown')
-                            logger.warning(f"Not storing historical stats for {server_display_name} due to status: '{status_msg}'. Error: {error_msg}")
+                            error_msg = remote_stats.get('error_message', 'Unknown error') if remote_stats else 'Remote stats object is None'
+                            status_msg = remote_stats.get('status', 'unknown') if remote_stats else 'unknown'
+                            result_name = remote_stats.get('name', 'N/A') if remote_stats else 'N/A'
+                            logger.warning(f"HDC: Stats fetch NOT successful for Index: '{server_index}', Configured Name: '{server_display_name}', Result Name: '{result_name}', Status: '{status_msg}', Error: {error_msg}")
+                            # logger.warning(f"Not storing historical stats for {server_display_name} due to status: '{status_msg}'. Error: {error_msg}") # Original log
                     except Exception as e_remote_fetch: # Catch errors from get_remote_server_stats itself
-                        logger.error(f"Exception during get_remote_server_stats for {server_display_name}: {e_remote_fetch}", exc_info=True)
+                        logger.error(f"HDC: Exception during get_remote_server_stats for Index: '{server_index}', Configured Name: '{server_display_name}'. Error: {e_remote_fetch}", exc_info=True)
                         # remote_processed_successfully remains False
 
                     with collector_status_lock:
@@ -369,7 +437,18 @@ def historical_data_collector():
             collector_status_info['last_cycle_duration_seconds'] = cycle_duration
             collector_status_info['status_updated_at'] = datetime.datetime.now().isoformat()
 
-        logger.info(f"Collection cycle finished in {cycle_duration:.2f} seconds. Processed: {collector_status_info['servers_processed_in_last_cycle']}, Failed: {collector_status_info['servers_failed_in_last_cycle']}. Sleeping for {current_collection_interval} seconds.")
+        logger.info(f"Collection cycle finished in {cycle_duration:.2f} seconds. Processed: {collector_status_info['servers_processed_in_last_cycle']}, Failed: {collector_status_info['servers_failed_in_last_cycle']}.")
+
+        # --- Run Alert Evaluation ---
+        try:
+            eval_cycle_id = uuid.uuid4()
+            logger.info(f"Initiating alert evaluation (Cycle ID: {eval_cycle_id}) after collection cycle.")
+            evaluate_alerts(eval_cycle_id)
+        except Exception as e_alert_eval:
+            logger.error(f"Error during evaluate_alerts call from historical_data_collector (Cycle ID: {eval_cycle_id}): {e_alert_eval}", exc_info=True)
+        # --- End Alert Evaluation ---
+
+        logger.info(f"Sleeping for {current_collection_interval} seconds before next collection cycle.")
         time.sleep(current_collection_interval)
 
 
@@ -803,6 +882,678 @@ def api_collector_status():
     status_copy['api_fetch_time'] = datetime.datetime.now().isoformat()
     return jsonify(status_copy)
 
+# --- Alerting Helper Functions (Database & Evaluation) ---
+
+def get_stats_for_alert_evaluation(db_cursor, server_name, resource_column_name, time_window_minutes):
+    """
+    Fetches historical stats for a given server and resource within a time window.
+    Returns a list of values (floats).
+    The db_cursor provided should be configured for dictionary-like row access.
+    For SQLite, ensure conn.row_factory = sqlite3.Row was set before creating the cursor.
+    """
+    logger.debug(f"Fetching stats for alert eval: server='{server_name}', resource='{resource_column_name}', window='{time_window_minutes} mins'")
+    values = []
+    try:
+        if DATABASE_TYPE == 'sqlite':
+            query = f"""
+                SELECT {resource_column_name}
+                FROM stats
+                WHERE server_name = ? AND timestamp >= datetime('now', '-' || CAST(? AS TEXT) || ' minutes')
+                ORDER BY timestamp ASC
+            """
+            params = (server_name, time_window_minutes) # Pass time_window_minutes directly
+        elif DATABASE_TYPE == 'postgresql':
+            query = f"""
+                SELECT {resource_column_name}
+                FROM stats
+                WHERE server_name = %s AND timestamp >= (CURRENT_TIMESTAMP - make_interval(mins => %s))
+                ORDER BY timestamp ASC
+            """
+            params = (server_name, time_window_minutes)
+        else:
+            logger.error(f"Unsupported DATABASE_TYPE '{DATABASE_TYPE}' in get_stats_for_alert_evaluation.")
+            return None
+
+        db_cursor.execute(query, params)
+        rows = db_cursor.fetchall()
+
+        for row in rows:
+            val = row[resource_column_name] # Assumes dict-like row access
+            if val is not None:
+                 values.append(float(val))
+        logger.debug(f"Found {len(values)} data points for {server_name}/{resource_column_name} in last {time_window_minutes} mins.")
+        return values
+    except Exception as e:
+        logger.error(f"Error fetching stats for alert eval ({server_name}, {resource_column_name}): {e}", exc_info=True)
+        return None
+
+
+import smtplib # Import at the top of the file is conventional, but here for diff clarity
+from email.mime.text import MIMEText
+
+def send_alert_email(alert, target_server_name, current_value_or_avg, actual_values_over_window):
+    """
+    Sends an email notification for a triggered alert.
+    """
+    if not SMTP_HOST or not EMAIL_FROM_ADDRESS:
+        logger.warning("SMTP_HOST or EMAIL_FROM_ADDRESS not configured. Skipping email notification.")
+        logger.warning(f"Alert Details (would have been emailed to {alert['emails']}):")
+        logger.warning(f"  Name: {alert['alert_name']}, Server: {target_server_name}, Resource: {alert['resource_type']}")
+        logger.warning(f"  Threshold: >{alert['threshold_percentage']}%, Window: {alert['time_window_minutes']}min")
+        logger.warning(f"  Current Value: {current_value_or_avg:.2f}%, Values in window: {actual_values_over_window}")
+        return
+
+    subject = f"FalconEye Alert: {alert['alert_name']} triggered on {target_server_name}"
+
+    # Constructing a more detailed body
+    body_lines = [
+        f"FalconEye Monitoring System has detected an alert.",
+        f"\nAlert Name:         {alert['alert_name']}",
+        f"Target Server:      {target_server_name}",
+        f"Monitored Resource: {alert['resource_type'].upper()}",
+        f"Threshold Set:      > {alert['threshold_percentage']}%",
+        f"Time Window:        {alert['time_window_minutes']} minutes",
+        f"Configured Emails:  {alert['emails']}",
+        f"\nTrigger Details:",
+        f"  The {alert['resource_type']} usage on server '{target_server_name}' has consistently been above the threshold of {alert['threshold_percentage']}% for the duration of the {alert['time_window_minutes']}-minute window.",
+        f"  Approx. Current Value (at time of trigger): {current_value_or_avg:.2f}%",
+        f"  Data points over the window (up to 10 samples): {', '.join(map(lambda x: f'{x:.2f}%', actual_values_over_window[:10]))}{'...' if len(actual_values_over_window) > 10 else ''}",
+        f"\nTriggered At: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S %Z')}",
+        f"\nPlease investigate this issue.",
+        f"\n-- FalconEye Monitoring System"
+    ]
+    body = "\n".join(body_lines)
+
+    msg = MIMEText(body)
+    msg['Subject'] = subject
+    msg['From'] = EMAIL_FROM_ADDRESS
+
+    # Handle comma-separated emails string for multiple recipients
+    recipients = [email.strip() for email in alert['emails'].split(',') if email.strip()]
+    if not recipients:
+        logger.warning(f"No valid recipient emails found for alert ID {alert['id']} ('{alert['alert_name']}'). Skipping email.")
+        return
+    msg['To'] = ", ".join(recipients) # Comma-separated string for the 'To' header
+
+    try:
+        if SMTP_USE_SSL:
+            logger.debug(f"Connecting to SMTP server {SMTP_HOST}:{SMTP_PORT} using SSL.")
+            server = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=10)
+        else:
+            logger.debug(f"Connecting to SMTP server {SMTP_HOST}:{SMTP_PORT}.")
+            server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10)
+            if SMTP_USE_TLS:
+                logger.debug("Starting TLS with SMTP server.")
+                server.starttls()
+
+        if SMTP_USER and SMTP_PASSWORD:
+            logger.debug(f"Logging in to SMTP server as {SMTP_USER}.")
+            server.login(SMTP_USER, SMTP_PASSWORD)
+
+        logger.debug(f"Sending email to {recipients} from {EMAIL_FROM_ADDRESS}.")
+        server.sendmail(EMAIL_FROM_ADDRESS, recipients, msg.as_string())
+        server.quit()
+        logger.info(f"Successfully sent alert email for '{alert['alert_name']}' to {recipients}.")
+
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error(f"SMTP Authentication Error for user {SMTP_USER} on {SMTP_HOST}:{SMTP_PORT}. Please check credentials. Error: {e}", exc_info=True)
+    except smtplib.SMTPConnectError as e:
+        logger.error(f"SMTP Connection Error for {SMTP_HOST}:{SMTP_PORT}. Check host/port and network. Error: {e}", exc_info=True)
+    except smtplib.SMTPServerDisconnected as e:
+        logger.error(f"SMTP Server Disconnected for {SMTP_HOST}:{SMTP_PORT}. Error: {e}", exc_info=True)
+    except smtplib.SMTPException as e:
+        logger.error(f"SMTP Error sending email for alert '{alert['alert_name']}': {e}", exc_info=True)
+    except ConnectionRefusedError as e: # More specific network error
+        logger.error(f"Connection refused by SMTP server {SMTP_HOST}:{SMTP_PORT}. Is the server running and accessible? Error: {e}", exc_info=True)
+    except TimeoutError as e: # For timeout on connection or operations
+        logger.error(f"Timeout connecting or communicating with SMTP server {SMTP_HOST}:{SMTP_PORT}. Error: {e}", exc_info=True)
+    except Exception as e: # Catch any other unexpected errors during email sending
+        logger.error(f"Unexpected error sending email for alert '{alert['alert_name']}': {e}", exc_info=True)
+
+
+def evaluate_alerts(eval_cycle_id): # Added eval_cycle_id parameter
+    logger.info(f"(Cycle ID: {eval_cycle_id}) Starting alert evaluation cycle...")
+    conn = None
+    cursor = None
+    try:
+        conn, cursor_main = get_db_connection() # Renamed to cursor_main to avoid conflict in update
+
+        if DATABASE_TYPE == 'sqlite':
+            conn.row_factory = sqlite3.Row
+            cursor_main = conn.cursor()
+
+        cursor_main.execute("SELECT * FROM alerts WHERE is_enabled = %s", (True,))
+        enabled_alerts_rows = cursor_main.fetchall()
+        enabled_alerts = [dict(row) for row in enabled_alerts_rows]
+
+        logger.info(f"(Cycle ID: {eval_cycle_id}) Found {len(enabled_alerts)} enabled alerts to evaluate.")
+        if not enabled_alerts:
+            logger.info(f"(Cycle ID: {eval_cycle_id}) No enabled alerts to evaluate. Cycle finished.") # Added log for empty
+            return
+
+        with collector_status_lock:
+            all_known_server_names = list(collector_status_info.get("configured_server_names", []))
+
+        if not all_known_server_names:
+            logger.warning(f"(Cycle ID: {eval_cycle_id}) No configured server names in collector_status_info for alert evaluation.")
+            # Fallback or error? For now, proceed, '*' alerts won't match anything.
+
+        resource_column_map = {'cpu': 'cpu_percent', 'ram': 'ram_percent', 'disk': 'disk_percent'}
+
+        for alert in enabled_alerts:
+            logger.info(f"(Cycle ID: {eval_cycle_id}) Evaluating alert: '{alert['alert_name']}' (ID: {alert['id']})")
+            resource_column = resource_column_map.get(alert['resource_type'])
+            if not resource_column:
+                logger.warning(f"(Cycle ID: {eval_cycle_id}) Invalid resource_type '{alert['resource_type']}' for alert ID {alert['id']}. Skipping.")
+                continue
+
+            target_servers = all_known_server_names if alert['server_name'] == '*' else [alert['server_name']]
+            if not target_servers:
+                logger.debug(f"(Cycle ID: {eval_cycle_id}) No target servers for alert ID {alert['id']} (Server pattern: {alert['server_name']}). Skipping.")
+                continue
+
+            for target_server in target_servers:
+                logger.debug(f"(Cycle ID: {eval_cycle_id}) Checking alert ID {alert['id']} for server: '{target_server}'")
+
+                if alert['last_triggered_at']:
+                    last_triggered_dt = alert['last_triggered_at']
+                    if isinstance(last_triggered_dt, str): # SQLite
+                        try:
+                            last_triggered_dt = datetime.datetime.fromisoformat(last_triggered_dt.replace(" ", "T"))
+                        except ValueError: # Try another common format if fromisoformat fails
+                            try: last_triggered_dt = datetime.datetime.strptime(last_triggered_dt, '%Y-%m-%d %H:%M:%S')
+                            except:
+                                try: last_triggered_dt = datetime.datetime.strptime(last_triggered_dt, '%Y-%m-%d %H:%M:%S.%f')
+                                except ValueError:
+                                    logger.error(f"(Cycle ID: {eval_cycle_id}) Unparseable last_triggered_at '{last_triggered_dt}' for alert {alert['id']}. Skipping cooldown.", exc_info=True)
+                                    last_triggered_dt = None
+
+                    current_time_for_cooldown = datetime.datetime.now(getattr(last_triggered_dt, 'tzinfo', None))
+                    if last_triggered_dt and (current_time_for_cooldown - last_triggered_dt).total_seconds() / 60 < ALERT_COOLDOWN_MINUTES:
+                        logger.info(f"(Cycle ID: {eval_cycle_id}) Alert ID {alert['id']} for '{target_server}' in cooldown. Last: {alert['last_triggered_at']}. Skipping.")
+                        continue
+
+                stats_values = get_stats_for_alert_evaluation(cursor_main, target_server, resource_column, alert['time_window_minutes'])
+                if stats_values is None: # Error already logged in helper
+                    logger.warning(f"(Cycle ID: {eval_cycle_id}) Could not retrieve stats for alert ID {alert['id']} on '{target_server}'. Skipping evaluation for this server.")
+                    continue
+
+                expected_points = (alert['time_window_minutes'] * 60) / current_collection_interval
+                min_points = max(1, int(expected_points * MINIMUM_DATA_POINTS_FOR_ALERT_PERCENTAGE))
+
+                if len(stats_values) < min_points:
+                    logger.info(f"(Cycle ID: {eval_cycle_id}) Not enough data for alert ID {alert['id']} on '{target_server}'. Have {len(stats_values)}/{min_points} (expected approx {expected_points:.1f}). Skipping.")
+                    continue
+
+                condition_met = all(val > alert['threshold_percentage'] for val in stats_values)
+                latest_val = stats_values[-1] if stats_values else 0
+
+                if condition_met:
+                    logger.warning(f"(Cycle ID: {eval_cycle_id}) ALERT TRIGGERED: '{alert['alert_name']}' (ID: {alert['id']}) for '{target_server}'. Values (last {len(stats_values)}): {stats_values}")
+                    send_alert_email(alert, target_server, latest_val, stats_values) # Email does not need cycle_id internally
+
+                    update_ts_query = "UPDATE alerts SET last_triggered_at = %s WHERE id = %s"
+                    now_ts = datetime.datetime.now()
+
+                    temp_conn_update, temp_cursor_update = None, None
+                    try:
+                        temp_conn_update, temp_cursor_update = get_db_connection()
+                        params_update = (now_ts.strftime('%Y-%m-%d %H:%M:%S.%f') if DATABASE_TYPE == 'sqlite' else now_ts, alert['id'])
+                        temp_cursor_update.execute(update_ts_query, params_update)
+                        temp_conn_update.commit()
+                        logger.info(f"(Cycle ID: {eval_cycle_id}) Updated last_triggered_at for alert ID {alert['id']} to {now_ts}")
+                    except Exception as e_upd:
+                        logger.error(f"(Cycle ID: {eval_cycle_id}) Failed to update last_triggered_at for alert {alert['id']}: {e_upd}", exc_info=True)
+                        if temp_conn_update: temp_conn_update.rollback()
+                    finally:
+                        if temp_cursor_update: temp_cursor_update.close()
+                        if temp_conn_update: temp_conn_update.close()
+                else:
+                    logger.info(f"(Cycle ID: {eval_cycle_id}) Alert ID {alert['id']} NOT MET for '{target_server}'. Latest: {latest_val} (Threshold: {alert['threshold_percentage']}%).")
+    except Exception as e:
+        logger.error(f"(Cycle ID: {eval_cycle_id}) Alert evaluation cycle error: {e}", exc_info=True)
+    finally:
+        if cursor_main: cursor_main.close()
+        if conn: conn.close()
+        logger.info(f"(Cycle ID: {eval_cycle_id}) Alert evaluation cycle finished.")
+
+# --- Alerting API Endpoints ---
+
+@app.route('/api/alerts', methods=['POST'])
+def create_alert():
+    if not session.get('logged_in'):
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Invalid input. JSON payload required."}), 400
+
+        required_fields = ['alert_name', 'server_name', 'resource_type', 'threshold_percentage', 'time_window_minutes', 'emails']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({"error": f"Missing required field: {field}"}), 400
+
+        alert_name = data['alert_name']
+        server_name = data['server_name']
+        resource_type = data['resource_type']
+        threshold_percentage = data['threshold_percentage']
+        time_window_minutes = data['time_window_minutes']
+        emails = data['emails']
+        is_enabled = data.get('is_enabled', True) # Defaults to True
+
+        # --- Input Validation ---
+        if not isinstance(alert_name, str) or not alert_name.strip():
+            return jsonify({"error": "alert_name must be a non-empty string."}), 400
+        if not isinstance(server_name, str) or not server_name.strip():
+            return jsonify({"error": "server_name must be a non-empty string."}), 400
+        if resource_type not in ['cpu', 'ram', 'disk']:
+            return jsonify({"error": "resource_type must be one of 'cpu', 'ram', or 'disk'."}), 400
+        try:
+            threshold_percentage = float(threshold_percentage)
+            if not (0 <= threshold_percentage <= 100):
+                 raise ValueError("Threshold percentage must be between 0 and 100.")
+        except ValueError as e:
+            return jsonify({"error": f"Invalid threshold_percentage: {e}"}), 400
+        try:
+            time_window_minutes = int(time_window_minutes)
+            if time_window_minutes <= 0:
+                raise ValueError("Time window minutes must be a positive integer.")
+        except ValueError as e:
+            return jsonify({"error": f"Invalid time_window_minutes: {e}"}), 400
+        if not isinstance(emails, str) or not emails.strip(): # Basic check, more robust email validation could be added
+            return jsonify({"error": "emails must be a non-empty string (comma-separated)."}), 400
+        if not isinstance(is_enabled, bool):
+            return jsonify({"error": "is_enabled must be a boolean."}), 400
+        # Validate email format (simple regex)
+        email_list = [email.strip() for email in emails.split(',')]
+        email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        for email in email_list:
+            if not re.match(email_regex, email):
+                return jsonify({"error": f"Invalid email format: '{email}'"}), 400
+        valid_emails_string = ",".join(email_list)
+
+
+        conn, cursor = get_db_connection()
+        insert_query = ""
+        if DATABASE_TYPE == 'sqlite':
+            insert_query = """
+                INSERT INTO alerts (alert_name, server_name, resource_type, threshold_percentage, time_window_minutes, emails, is_enabled)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """
+        elif DATABASE_TYPE == 'postgresql':
+            insert_query = """
+                INSERT INTO alerts (alert_name, server_name, resource_type, threshold_percentage, time_window_minutes, emails, is_enabled)
+                VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id;
+            """
+
+        params = (alert_name, server_name, resource_type, threshold_percentage, time_window_minutes, valid_emails_string, is_enabled)
+
+        cursor.execute(insert_query, params)
+        alert_id = cursor.lastrowid if DATABASE_TYPE == 'sqlite' else cursor.fetchone()[0]
+        conn.commit()
+
+        logger.info(f"Alert '{alert_name}' created successfully with ID: {alert_id} for server '{server_name}'.")
+        return jsonify({
+            "message": "Alert created successfully",
+            "alert_id": alert_id,
+            "alert_name": alert_name,
+            "server_name": server_name,
+            "resource_type": resource_type,
+            "threshold_percentage": threshold_percentage,
+            "time_window_minutes": time_window_minutes,
+            "emails": valid_emails_string,
+            "is_enabled": is_enabled
+        }), 201
+
+    except psycopg2.Error as e_pg: # Specific error for PostgreSQL
+        logger.error(f"PostgreSQL error during alert creation: {e_pg}", exc_info=True)
+        return jsonify({"error": f"Database error: {e_pg.pgerror or str(e_pg)}"}), 500
+    except sqlite3.Error as e_sql: # Specific error for SQLite
+        logger.error(f"SQLite error during alert creation: {e_sql}", exc_info=True)
+        return jsonify({"error": f"Database error: {str(e_sql)}"}), 500
+    except Exception as e:
+        logger.error(f"Error creating alert: {e}", exc_info=True)
+        return jsonify({"error": "An unexpected error occurred while creating the alert."}), 500
+    finally:
+        if 'conn' in locals() and conn:
+            if 'cursor' in locals() and cursor:
+                cursor.close()
+            conn.close()
+
+@app.route('/api/alerts', methods=['GET'])
+def get_all_alerts():
+    if not session.get('logged_in'):
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        conn, cursor = get_db_connection()
+        query = "SELECT id, alert_name, server_name, resource_type, threshold_percentage, time_window_minutes, emails, is_enabled, last_triggered_at, created_at FROM alerts ORDER BY created_at DESC"
+
+        if DATABASE_TYPE == 'sqlite':
+            conn.row_factory = sqlite3.Row # To access columns by name
+            cursor = conn.cursor()
+        # For PostgreSQL, DictCursor is already set by get_db_connection
+
+        cursor.execute(query)
+        alerts_raw = cursor.fetchall()
+
+        alerts = []
+        for row in alerts_raw:
+            alert = dict(row) # Convert Row object (SQLite) or DictRow (psycopg2) to dict
+            # Ensure datetime objects are JSON serializable
+            if alert.get('last_triggered_at') and isinstance(alert['last_triggered_at'], (datetime.datetime, datetime.date)):
+                alert['last_triggered_at'] = alert['last_triggered_at'].isoformat()
+            if alert.get('created_at') and isinstance(alert['created_at'], (datetime.datetime, datetime.date)):
+                alert['created_at'] = alert['created_at'].isoformat()
+            alerts.append(alert)
+
+        logger.info(f"Retrieved {len(alerts)} alerts.")
+        return jsonify(alerts), 200
+
+    except Exception as e:
+        logger.error(f"Error retrieving all alerts: {e}", exc_info=True)
+        return jsonify({"error": "An error occurred while retrieving alerts."}), 500
+    finally:
+        if 'conn' in locals() and conn:
+            if 'cursor' in locals() and cursor:
+                cursor.close()
+            conn.close()
+
+@app.route('/api/alerts/<int:alert_id>', methods=['GET'])
+def get_alert_by_id(alert_id):
+    if not session.get('logged_in'):
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        conn, cursor = get_db_connection()
+        query = "SELECT id, alert_name, server_name, resource_type, threshold_percentage, time_window_minutes, emails, is_enabled, last_triggered_at, created_at FROM alerts WHERE id = "
+        query += "%s" if DATABASE_TYPE == 'postgresql' else "?"
+
+        if DATABASE_TYPE == 'sqlite':
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+        cursor.execute(query, (alert_id,))
+        row = cursor.fetchone()
+
+        if row:
+            alert = dict(row)
+            if alert.get('last_triggered_at') and isinstance(alert['last_triggered_at'], (datetime.datetime, datetime.date)):
+                alert['last_triggered_at'] = alert['last_triggered_at'].isoformat()
+            if alert.get('created_at') and isinstance(alert['created_at'], (datetime.datetime, datetime.date)):
+                alert['created_at'] = alert['created_at'].isoformat()
+            logger.info(f"Retrieved alert with ID: {alert_id}.")
+            return jsonify(alert), 200
+        else:
+            logger.warning(f"Alert with ID {alert_id} not found.")
+            return jsonify({"error": "Alert not found"}), 404
+
+    except Exception as e:
+        logger.error(f"Error retrieving alert with ID {alert_id}: {e}", exc_info=True)
+        return jsonify({"error": "An error occurred while retrieving the alert."}), 500
+    finally:
+        if 'conn' in locals() and conn:
+            if 'cursor' in locals() and cursor:
+                cursor.close()
+            conn.close()
+
+@app.route('/api/alerts/<int:alert_id>', methods=['PUT'])
+def update_alert(alert_id):
+    if not session.get('logged_in'):
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Invalid input. JSON payload required."}), 400
+
+        # Fetch existing alert to see what fields are being updated
+        conn, cursor = get_db_connection()
+
+        # Check if alert exists
+        select_query = "SELECT * FROM alerts WHERE id = "
+        select_query += "%s" if DATABASE_TYPE == 'postgresql' else "?"
+        if DATABASE_TYPE == 'sqlite': # Set row_factory for this specific cursor if needed
+            original_row_factory = conn.row_factory
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor() # Recreate cursor if row_factory changed
+
+        cursor.execute(select_query, (alert_id,))
+        existing_alert = cursor.fetchone()
+
+        if DATABASE_TYPE == 'sqlite' and original_row_factory is not None: # Reset row_factory if changed
+             conn.row_factory = original_row_factory
+
+        if not existing_alert:
+            logger.warning(f"Attempt to update non-existent alert with ID {alert_id}.")
+            return jsonify({"error": "Alert not found"}), 404
+
+        # Start building the update query
+        update_fields = []
+        params = []
+
+        # Validate and add fields to update
+        if 'alert_name' in data:
+            alert_name = data['alert_name']
+            if not isinstance(alert_name, str) or not alert_name.strip():
+                return jsonify({"error": "alert_name must be a non-empty string."}), 400
+            update_fields.append("alert_name = %s" if DATABASE_TYPE == 'postgresql' else "alert_name = ?")
+            params.append(alert_name)
+
+        if 'server_name' in data:
+            server_name = data['server_name']
+            if not isinstance(server_name, str) or not server_name.strip():
+                return jsonify({"error": "server_name must be a non-empty string."}), 400
+            update_fields.append("server_name = %s" if DATABASE_TYPE == 'postgresql' else "server_name = ?")
+            params.append(server_name)
+
+        if 'resource_type' in data:
+            resource_type = data['resource_type']
+            if resource_type not in ['cpu', 'ram', 'disk']:
+                return jsonify({"error": "resource_type must be one of 'cpu', 'ram', or 'disk'."}), 400
+            update_fields.append("resource_type = %s" if DATABASE_TYPE == 'postgresql' else "resource_type = ?")
+            params.append(resource_type)
+
+        if 'threshold_percentage' in data:
+            try:
+                threshold_percentage = float(data['threshold_percentage'])
+                if not (0 <= threshold_percentage <= 100):
+                    raise ValueError("Threshold percentage must be between 0 and 100.")
+                update_fields.append("threshold_percentage = %s" if DATABASE_TYPE == 'postgresql' else "threshold_percentage = ?")
+                params.append(threshold_percentage)
+            except ValueError as e:
+                return jsonify({"error": f"Invalid threshold_percentage: {e}"}), 400
+
+        if 'time_window_minutes' in data:
+            try:
+                time_window_minutes = int(data['time_window_minutes'])
+                if time_window_minutes <= 0:
+                    raise ValueError("Time window minutes must be a positive integer.")
+                update_fields.append("time_window_minutes = %s" if DATABASE_TYPE == 'postgresql' else "time_window_minutes = ?")
+                params.append(time_window_minutes)
+            except ValueError as e:
+                return jsonify({"error": f"Invalid time_window_minutes: {e}"}), 400
+
+        if 'emails' in data:
+            emails = data['emails']
+            if not isinstance(emails, str) or not emails.strip():
+                return jsonify({"error": "emails must be a non-empty string (comma-separated)."}), 400
+            email_list = [email.strip() for email in emails.split(',')]
+            email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            for email_val in email_list: # Renamed to avoid conflict
+                if not re.match(email_regex, email_val):
+                    return jsonify({"error": f"Invalid email format: '{email_val}'"}), 400
+            valid_emails_string = ",".join(email_list)
+            update_fields.append("emails = %s" if DATABASE_TYPE == 'postgresql' else "emails = ?")
+            params.append(valid_emails_string)
+
+        if 'is_enabled' in data:
+            is_enabled = data['is_enabled']
+            if not isinstance(is_enabled, bool):
+                return jsonify({"error": "is_enabled must be a boolean."}), 400
+            update_fields.append("is_enabled = %s" if DATABASE_TYPE == 'postgresql' else "is_enabled = ?")
+            params.append(is_enabled)
+
+        if not update_fields:
+            return jsonify({"error": "No fields provided to update."}), 400
+
+        # Construct and execute the update query
+        sql_set_clause = ", ".join(update_fields)
+        update_query = f"UPDATE alerts SET {sql_set_clause} WHERE id = "
+        update_query += "%s" if DATABASE_TYPE == 'postgresql' else "?"
+        params.append(alert_id)
+
+        # Need a fresh cursor for execute if row_factory was changed and reset for SQLite
+        if DATABASE_TYPE == 'sqlite' and original_row_factory is not None:
+            cursor.close() # Close old cursor
+            cursor = conn.cursor() # Get fresh default cursor
+
+        cursor.execute(update_query, tuple(params))
+        conn.commit()
+
+        # Fetch the updated alert to return
+        if DATABASE_TYPE == 'sqlite': # Set row_factory for this specific cursor if needed
+            original_row_factory = conn.row_factory
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor() # Recreate cursor if row_factory changed
+
+        cursor.execute(select_query, (alert_id,)) # select_query defined earlier
+        updated_alert_row = cursor.fetchone()
+
+        if DATABASE_TYPE == 'sqlite' and original_row_factory is not None: # Reset row_factory if changed
+             conn.row_factory = original_row_factory
+
+        if updated_alert_row:
+            updated_alert = dict(updated_alert_row)
+            if updated_alert.get('last_triggered_at') and isinstance(updated_alert['last_triggered_at'], (datetime.datetime, datetime.date)):
+                updated_alert['last_triggered_at'] = updated_alert['last_triggered_at'].isoformat()
+            if updated_alert.get('created_at') and isinstance(updated_alert['created_at'], (datetime.datetime, datetime.date)):
+                updated_alert['created_at'] = updated_alert['created_at'].isoformat()
+            logger.info(f"Alert with ID {alert_id} updated successfully. Fields changed: {', '.join(data.keys())}")
+            return jsonify({"message": "Alert updated successfully", "alert": updated_alert}), 200
+        else: # Should not happen if update was successful and ID is correct, but as a safeguard
+            logger.error(f"Failed to retrieve alert with ID {alert_id} after update.")
+            return jsonify({"error": "Alert updated but failed to retrieve the updated record."}), 500
+
+
+    except psycopg2.Error as e_pg:
+        logger.error(f"PostgreSQL error updating alert {alert_id}: {e_pg}", exc_info=True)
+        return jsonify({"error": f"Database error: {e_pg.pgerror or str(e_pg)}"}), 500
+    except sqlite3.Error as e_sql:
+        logger.error(f"SQLite error updating alert {alert_id}: {e_sql}", exc_info=True)
+        return jsonify({"error": f"Database error: {str(e_sql)}"}), 500
+    except Exception as e:
+        logger.error(f"Error updating alert {alert_id}: {e}", exc_info=True)
+        return jsonify({"error": "An unexpected error occurred while updating the alert."}), 500
+    finally:
+        if 'conn' in locals() and conn:
+            if 'cursor' in locals() and cursor:
+                cursor.close()
+            conn.close()
+
+@app.route('/api/alerts/<int:alert_id>', methods=['DELETE'])
+def delete_alert(alert_id):
+    if not session.get('logged_in'):
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        conn, cursor = get_db_connection()
+
+        # Check if alert exists before deleting
+        select_query = "SELECT id FROM alerts WHERE id = "
+        select_query += "%s" if DATABASE_TYPE == 'postgresql' else "?"
+        cursor.execute(select_query, (alert_id,))
+        existing_alert = cursor.fetchone()
+
+        if not existing_alert:
+            logger.warning(f"Attempt to delete non-existent alert with ID {alert_id}.")
+            return jsonify({"error": "Alert not found"}), 404
+
+        delete_query = "DELETE FROM alerts WHERE id = "
+        delete_query += "%s" if DATABASE_TYPE == 'postgresql' else "?"
+
+        cursor.execute(delete_query, (alert_id,))
+        conn.commit()
+
+        if cursor.rowcount > 0:
+            logger.info(f"Alert with ID {alert_id} deleted successfully.")
+            return jsonify({"message": "Alert deleted successfully"}), 200
+        else:
+            # This case should ideally be caught by the 'existing_alert' check,
+            # but it's a safeguard if the delete somehow affects 0 rows despite finding it.
+            logger.warning(f"Alert with ID {alert_id} was found but not deleted (rowcount 0).")
+            return jsonify({"error": "Alert not found or already deleted"}), 404
+
+    except psycopg2.Error as e_pg:
+        logger.error(f"PostgreSQL error deleting alert {alert_id}: {e_pg}", exc_info=True)
+        return jsonify({"error": f"Database error: {e_pg.pgerror or str(e_pg)}"}), 500
+    except sqlite3.Error as e_sql:
+        logger.error(f"SQLite error deleting alert {alert_id}: {e_sql}", exc_info=True)
+        return jsonify({"error": f"Database error: {str(e_sql)}"}), 500
+    except Exception as e:
+        logger.error(f"Error deleting alert {alert_id}: {e}", exc_info=True)
+        return jsonify({"error": "An unexpected error occurred while deleting the alert."}), 500
+    finally:
+        if 'conn' in locals() and conn:
+            if 'cursor' in locals() and cursor:
+                cursor.close()
+            conn.close()
+
+def set_alert_enabled_status(alert_id, is_enabled_status):
+    """Helper function to enable/disable an alert."""
+    if not session.get('logged_in'): # Repeated here for direct call safety, though routes should check
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        conn, cursor = get_db_connection()
+
+        # Check if alert exists
+        select_query = "SELECT id FROM alerts WHERE id = "
+        select_query += "%s" if DATABASE_TYPE == 'postgresql' else "?"
+        cursor.execute(select_query, (alert_id,))
+        existing_alert = cursor.fetchone()
+
+        if not existing_alert:
+            logger.warning(f"Attempt to {'enable' if is_enabled_status else 'disable'} non-existent alert with ID {alert_id}.")
+            return jsonify({"error": "Alert not found"}), 404
+
+        update_query = "UPDATE alerts SET is_enabled = "
+        update_query += "%s" if DATABASE_TYPE == 'postgresql' else "?"
+        update_query += " WHERE id = "
+        update_query += "%s" if DATABASE_TYPE == 'postgresql' else "?"
+
+        params = (is_enabled_status, alert_id)
+        cursor.execute(update_query, params)
+        conn.commit()
+
+        action = "enabled" if is_enabled_status else "disabled"
+        if cursor.rowcount > 0:
+            logger.info(f"Alert with ID {alert_id} {action} successfully.")
+            return jsonify({"message": f"Alert {action} successfully"}), 200
+        else:
+            # Should be caught by existence check, but as safeguard
+            logger.warning(f"Alert with ID {alert_id} found but status not changed (rowcount 0).")
+            return jsonify({"error": f"Alert not found or status already set to {action}"}), 404
+
+    except psycopg2.Error as e_pg:
+        logger.error(f"PostgreSQL error setting alert {alert_id} status to {is_enabled_status}: {e_pg}", exc_info=True)
+        return jsonify({"error": f"Database error: {e_pg.pgerror or str(e_pg)}"}), 500
+    except sqlite3.Error as e_sql:
+        logger.error(f"SQLite error setting alert {alert_id} status to {is_enabled_status}: {e_sql}", exc_info=True)
+        return jsonify({"error": f"Database error: {str(e_sql)}"}), 500
+    except Exception as e:
+        logger.error(f"Error setting alert {alert_id} status to {is_enabled_status}: {e}", exc_info=True)
+        return jsonify({"error": f"An unexpected error occurred."}), 500
+    finally:
+        if 'conn' in locals() and conn:
+            if 'cursor' in locals() and cursor:
+                cursor.close()
+            conn.close()
+
+@app.route('/api/alerts/<int:alert_id>/enable', methods=['POST'])
+def enable_alert(alert_id):
+    return set_alert_enabled_status(alert_id, True)
+
+@app.route('/api/alerts/<int:alert_id>/disable', methods=['POST'])
+def disable_alert(alert_id):
+    return set_alert_enabled_status(alert_id, False)
+
+
 if __name__ == '__main__':
     logger.info("Application starting...")
     init_db() # init_db now has its own logging
@@ -810,28 +1561,43 @@ if __name__ == '__main__':
     # This is because parse_remote_server_configs is called before the thread loop
     # The historical_data_collector will then update counts and times.
     try:
-        initial_configs = parse_remote_server_configs()
+        # Initialize collector_status_info with server names before starting the thread.
+        # This mirrors the logic at the start of historical_data_collector for consistency.
+        initial_server_configs_map = parse_remote_server_configs()
+        temp_initial_server_names = []
+        initial_has_explicit_local = False
+        for idx, cfg in initial_server_configs_map.items():
+            name = cfg.get('name', cfg.get('host', f"ServerIndex_{idx}"))
+            temp_initial_server_names.append(name)
+            if cfg.get('is_local', False) or name == 'local':
+                initial_has_explicit_local = True
+
+        if not initial_has_explicit_local and 'local' not in temp_initial_server_names:
+            temp_initial_server_names.append('local')
+
+        unique_initial_names = sorted(list(set(temp_initial_server_names)))
+
         with collector_status_lock:
-            collector_status_info["servers_configured_count"] = len(initial_configs)
-            collector_status_info["configured_server_names"] = [
-                cfg.get('name', cfg.get('host', f"ServerIndex_{idx}"))
-                for idx, cfg in initial_configs.items()
-            ]
-            # Add local if not covered by IS_LOCAL
-            if not any(s_cfg.get('is_local', False) for s_cfg in initial_configs.values()) and 'local' not in collector_status_info["configured_server_names"]:
-                 collector_status_info["configured_server_names"].append('local')
-                 collector_status_info["servers_configured_count"] +=1
+            collector_status_info["configured_server_names"] = unique_initial_names
+            collector_status_info["servers_configured_count"] = len(unique_initial_names)
+            logger.info(f"Initial collector status populated at startup. Monitored servers: {collector_status_info['configured_server_names']}")
 
     except Exception as e:
-        logger.error(f"Failed to perform initial parse of server_configs for collector_status: {e}", exc_info=True)
-        # Default to local if parsing fails completely
-        with collector_status_lock:
+        logger.error(f"Failed to perform initial parse of server_configs for collector_status at startup: {e}", exc_info=True)
+        with collector_status_lock: # Default to local if parsing fails
             collector_status_info["servers_configured_count"] = 1
             collector_status_info["configured_server_names"] = ['local']
 
+    # Only start the collector thread if not in debug mode OR if this is the main Werkzeug process
+    if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        collector_thread = threading.Thread(target=historical_data_collector, name="HistoricalDataCollectorThread", daemon=True)
+        collector_thread.start()
+        logger.info("Historical data collector thread started in the appropriate process.")
+    elif app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        logger.info("Flask Debug mode is on and this is the reloader process. Collector thread will not start here.")
 
-    collector_thread = threading.Thread(target=historical_data_collector, name="HistoricalDataCollectorThread", daemon=True)
-    collector_thread.start()
-    logger.info("Historical data collector thread started.")
+    # Note: Alert evaluation is called within the historical_data_collector loop.
+    # No separate alert evaluation thread is started here to keep it sequential after data collection.
+
     logger.info("Starting Flask development server. Note: Flask's internal logs may also be shown if DEBUG is true.")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=False, host='0.0.0.0', port=5000)
