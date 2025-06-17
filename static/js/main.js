@@ -31,6 +31,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const detailHistRamChartEl = document.getElementById('detailHistoricalRamChart').getContext('2d');
     const detailHistDiskChartEl = document.getElementById('detailHistoricalDiskChart').getContext('2d');
 
+    // Alert Config View Elements
+    const alertConfigView = document.getElementById('alertConfigView');
+    const alertConfigForm = document.getElementById('alertConfigForm');
+    const alertFormTitle = document.getElementById('alertFormTitle');
+    const alertIdInput = document.getElementById('alert_id');
+    const alertNameInput = document.getElementById('alert_name');
+    const serverNameSelect = document.getElementById('server_name');
+    const resourceTypeSelect = document.getElementById('resource_type');
+    const thresholdInput = document.getElementById('threshold_percentage');
+    const timeWindowInput = document.getElementById('time_window_minutes');
+    const emailsInput = document.getElementById('emails');
+    const saveAlertButton = document.getElementById('saveAlertButton');
+    const cancelEditAlertButton = document.getElementById('cancelEditAlertButton');
+    const alertsTableBody = document.getElementById('alertsTableBody');
+    const userFeedbackDiv = document.getElementById('userFeedback');
+    const userFeedbackMessageSpan = document.getElementById('userFeedbackMessage');
+
+    // Navigation Elements
+    const navServerList = document.getElementById('navServerList');
+    const navAlertConfig = document.getElementById('navAlertConfig');
+
 
     // --- State Variables ---
     let detailCpuGaugeChart, detailRamGaugeChart, detailDiskGaugeChart;
@@ -133,25 +154,71 @@ const getChartJsThemeOptions = () => {
     // --- View Management ---
     function showView(viewId) {
         document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
-        document.getElementById(viewId)?.classList.add('active');
+        const targetView = document.getElementById(viewId);
+        if (targetView) {
+            targetView.classList.add('active');
+        }
 
-        if (viewId === 'serverListView') {
-            if (detailViewInterval) clearInterval(detailViewInterval); // Stop detail refresh
-            selectedServerData = null; // Clear selection
-            destroyDetailHistoricalCharts(); // Clean up detail charts
-        } else if (viewId === 'serverDetailView') {
-            // Start interval for selected server's current stats if not already running
+        // Update active state for nav items
+        document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+        const activeNavItem = document.querySelector(`.nav-item[data-view="${viewId}"]`);
+        if (activeNavItem) {
+            activeNavItem.classList.add('active');
+        }
+
+
+        if (viewId === 'serverListView' || viewId === 'alertConfigView') {
+            if (detailViewInterval) clearInterval(detailViewInterval);
+            selectedServerData = null;
+            if (viewId !== 'serverDetailView') { // only destroy if not going to detail view
+                 destroyDetailHistoricalCharts();
+            }
+        }
+
+        if (viewId === 'serverDetailView') {
             if (detailViewInterval) clearInterval(detailViewInterval);
             detailViewInterval = setInterval(updateSelectedServerCurrentData, DETAIL_VIEW_REFRESH_INTERVAL);
+        } else if (viewId === 'alertConfigView') {
+            // Load data for alert config view
+            populateAlertServerDropdown();
+            fetchAndDisplayAlerts();
+            resetAlertForm(); // Ensure form is clean when switching to this view
         }
     }
+
+    // --- User Feedback ---
+    function showFeedback(message, type = 'success') { // type can be 'success', 'error', 'warning'
+        userFeedbackMessageSpan.textContent = message;
+        userFeedbackDiv.className = 'alert alert-dismissible fade show'; // Reset classes
+        if (type === 'success') {
+            userFeedbackDiv.classList.add('alert-success');
+        } else if (type === 'error') {
+            userFeedbackDiv.classList.add('alert-danger');
+        } else if (type === 'warning') {
+            userFeedbackDiv.classList.add('alert-warning');
+        } else {
+            userFeedbackDiv.classList.add('alert-info');
+        }
+        userFeedbackDiv.style.display = 'block';
+        userFeedbackDiv.classList.add('show'); // Ensure it's visible if previously hidden by 'fade'
+    }
+
+    function hideFeedback() {
+        userFeedbackDiv.classList.remove('show');
+        // Bootstrap's JS would handle the fade out, but if not using its JS:
+        userFeedbackDiv.style.display = 'none';
+    }
+    // Make hideFeedback globally accessible for the button's onclick
+    window.hideFeedback = hideFeedback;
+
 
     // --- Dark Mode ---
     // ... (Dark mode logic - same as before, but ensure applyThemeToVisuals is adapted) ...
     function applyThemeToVisuals() {
         // This function will now primarily re-theme the *detail view* gauges and charts
         // as the server list doesn't have complex Chart.js elements by default.
-        if (selectedServerData && serverDetailView.classList.contains('active')) {
+        const activeView = document.querySelector('.view.active');
+        if (selectedServerData && activeView && activeView.id === 'serverDetailView') {
             // Re-create detail gauges
             if(detailCpuGaugeChart) detailCpuGaugeChart.destroy();
             if(detailRamGaugeChart) detailRamGaugeChart.destroy();
@@ -414,11 +481,254 @@ const getChartJsThemeOptions = () => {
 
     backToServerListButton.addEventListener('click', () => showView('serverListView'));
 
+    // --- Alert Configuration Logic ---
+    function populateAlertServerDropdown() {
+        fetch('/api/collector_status')
+            .then(response => response.json())
+            .then(data => {
+                const currentVal = serverNameSelect.value;
+                serverNameSelect.innerHTML = '<option value="" disabled>Select Server</option>'; // Clear existing
+                serverNameSelect.add(new Option('All Servers (*)', '*'));
+                serverNameSelect.add(new Option('Local Server (local)', 'local'));
+
+                if (data.configured_server_names && Array.isArray(data.configured_server_names)) {
+                    data.configured_server_names.forEach(name => {
+                        // Avoid adding 'local' again if it's in configured_server_names
+                        if (name.toLowerCase() !== 'local') {
+                           serverNameSelect.add(new Option(name, name));
+                        }
+                    });
+                }
+                // Try to restore previous selection if still valid
+                if (Array.from(serverNameSelect.options).some(opt => opt.value === currentVal)) {
+                    serverNameSelect.value = currentVal;
+                } else if (!currentVal && serverNameSelect.options.length > 0) {
+                     // If no previous value, and we have options, default to the first non-disabled one.
+                    const firstEnabledOption = Array.from(serverNameSelect.options).find(opt => !opt.disabled);
+                    if (firstEnabledOption) serverNameSelect.value = firstEnabledOption.value;
+                    else serverNameSelect.value = ""; // Fallback if all are disabled (should not happen)
+                } else {
+                    serverNameSelect.value = ""; // Default to "Select Server"
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching server names for alert dropdown:', error);
+                showFeedback('Could not load server list for dropdown.', 'error');
+                serverNameSelect.innerHTML = '<option value="" disabled selected>Error loading servers</option>';
+            });
+    }
+
+    function fetchAndDisplayAlerts() {
+        fetch('/api/alerts')
+            .then(response => response.json())
+            .then(alerts => {
+                alertsTableBody.innerHTML = ''; // Clear existing rows
+                if (alerts.length === 0) {
+                    alertsTableBody.innerHTML = '<tr><td colspan="10" style="text-align:center;">No alerts configured yet.</td></tr>';
+                    return;
+                }
+                alerts.forEach(alert => {
+                    const row = alertsTableBody.insertRow();
+                    row.insertCell().textContent = alert.alert_name;
+                    row.insertCell().textContent = alert.server_name;
+                    row.insertCell().textContent = alert.resource_type.toUpperCase();
+                    row.insertCell().textContent = alert.threshold_percentage;
+                    row.insertCell().textContent = alert.time_window_minutes;
+                    row.insertCell().textContent = alert.emails;
+
+                    const statusCell = row.insertCell();
+                    const statusBadge = document.createElement('span');
+                    statusBadge.textContent = alert.is_enabled ? 'Enabled' : 'Disabled';
+                    statusBadge.className = alert.is_enabled ? 'status-enabled' : 'status-disabled';
+                    statusCell.appendChild(statusBadge);
+
+                    row.insertCell().textContent = alert.last_triggered_at ? new Date(alert.last_triggered_at).toLocaleString() : 'Never';
+                    row.insertCell().textContent = new Date(alert.created_at).toLocaleString();
+
+                    const actionsCell = row.insertCell();
+                    actionsCell.classList.add('actions-cell');
+                    const editButton = document.createElement('button');
+                    editButton.textContent = 'Edit';
+                    editButton.className = 'button-secondary button-small';
+                    editButton.dataset.alertId = alert.id;
+                    editButton.addEventListener('click', handleEditAlert);
+                    actionsCell.appendChild(editButton);
+
+                    const deleteButton = document.createElement('button');
+                    deleteButton.textContent = 'Delete';
+                    deleteButton.className = 'button-danger button-small';
+                    deleteButton.dataset.alertId = alert.id;
+                    deleteButton.addEventListener('click', handleDeleteAlert);
+                    actionsCell.appendChild(deleteButton);
+
+                    const toggleEnableButton = document.createElement('button');
+                    toggleEnableButton.textContent = alert.is_enabled ? 'Disable' : 'Enable';
+                    toggleEnableButton.className = `button-small ${alert.is_enabled ? 'button-warning' : 'button-success'}`;
+                    toggleEnableButton.dataset.alertId = alert.id;
+                    toggleEnableButton.dataset.isEnabled = alert.is_enabled;
+                    toggleEnableButton.addEventListener('click', handleToggleEnableAlert);
+                    actionsCell.appendChild(toggleEnableButton);
+                });
+            })
+            .catch(error => {
+                console.error('Error fetching alerts:', error);
+                alertsTableBody.innerHTML = '<tr><td colspan="10" style="text-align:center;">Error loading alerts.</td></tr>';
+                showFeedback('Failed to load alerts.', 'error');
+            });
+    }
+
+    function resetAlertForm() {
+        alertConfigForm.reset();
+        alertIdInput.value = '';
+        alertFormTitle.textContent = 'Create New Alert';
+        saveAlertButton.textContent = 'Save Alert';
+        cancelEditAlertButton.style.display = 'none';
+        // Reset any validation states if implemented
+    }
+
+    alertConfigForm.addEventListener('submit', function(event) {
+        event.preventDefault();
+        const alertId = alertIdInput.value;
+        const formData = {
+            alert_name: alertNameInput.value,
+            server_name: serverNameSelect.value,
+            resource_type: resourceTypeSelect.value,
+            threshold_percentage: parseFloat(thresholdInput.value),
+            time_window_minutes: parseInt(timeWindowInput.value),
+            emails: emailsInput.value,
+            // is_enabled is not part of the form by default, handled by enable/disable buttons
+        };
+
+        // Basic Frontend Validation (can be more extensive)
+        if (!formData.alert_name || !formData.server_name || !formData.resource_type || isNaN(formData.threshold_percentage) || isNaN(formData.time_window_minutes) || !formData.emails) {
+            showFeedback('Please fill in all required fields with valid values.', 'error');
+            return;
+        }
+        if (formData.threshold_percentage < 0 || formData.threshold_percentage > 100) {
+             showFeedback('Threshold percentage must be between 0 and 100.', 'error');
+            return;
+        }
+        if (formData.time_window_minutes <=0) {
+             showFeedback('Time window must be a positive integer.', 'error');
+            return;
+        }
+        // Simple email validation (can be improved)
+        const emailList = formData.emails.split(',').map(e => e.trim());
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        for (const email of emailList) {
+            if (!emailRegex.test(email)) {
+                showFeedback(`Invalid email format: ${email}`, 'error');
+                return;
+            }
+        }
+
+
+        const method = alertId ? 'PUT' : 'POST';
+        const url = alertId ? `/api/alerts/${alertId}` : '/api/alerts';
+
+        fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
+        })
+        .then(response => response.json().then(data => ({ ok: response.ok, status: response.status, body: data })))
+        .then(res => {
+            if (res.ok) {
+                showFeedback(`Alert ${alertId ? 'updated' : 'created'} successfully.`, 'success');
+                resetAlertForm();
+                fetchAndDisplayAlerts();
+            } else {
+                throw new Error(res.body.error || `Failed to ${alertId ? 'update' : 'create'} alert. Status: ${res.status}`);
+            }
+        })
+        .catch(error => {
+            console.error(`Error ${alertId ? 'updating' : 'creating'} alert:`, error);
+            showFeedback(error.message || `An error occurred.`, 'error');
+        });
+    });
+
+    function handleEditAlert(event) {
+        const alertId = event.target.dataset.alertId;
+        fetch(`/api/alerts/${alertId}`)
+            .then(response => response.json())
+            .then(alert => {
+                if (alert.error) {
+                    throw new Error(alert.error);
+                }
+                alertIdInput.value = alert.id;
+                alertNameInput.value = alert.alert_name;
+                serverNameSelect.value = alert.server_name;
+                resourceTypeSelect.value = alert.resource_type;
+                thresholdInput.value = alert.threshold_percentage;
+                timeWindowInput.value = alert.time_window_minutes;
+                emailsInput.value = alert.emails;
+                // is_enabled is not directly set in the form, but could be if there was a checkbox
+
+                alertFormTitle.textContent = 'Edit Alert';
+                saveAlertButton.textContent = 'Update Alert';
+                cancelEditAlertButton.style.display = 'inline-block';
+                window.scrollTo({ top: alertConfigForm.offsetTop - 20, behavior: 'smooth' }); // Scroll to form
+            })
+            .catch(error => {
+                console.error('Error fetching alert for edit:', error);
+                showFeedback(`Error fetching alert details: ${error.message}`, 'error');
+            });
+    }
+
+    cancelEditAlertButton.addEventListener('click', resetAlertForm);
+
+    function handleDeleteAlert(event) {
+        const alertId = event.target.dataset.alertId;
+        if (confirm('Are you sure you want to delete this alert?')) {
+            fetch(`/api/alerts/${alertId}`, { method: 'DELETE' })
+            .then(response => response.json().then(data => ({ ok: response.ok, status: response.status, body: data })))
+            .then(res => {
+                if (res.ok) {
+                    showFeedback('Alert deleted successfully.', 'success');
+                    fetchAndDisplayAlerts();
+                } else {
+                     throw new Error(res.body.error || `Failed to delete alert. Status: ${res.status}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error deleting alert:', error);
+                showFeedback(`Error deleting alert: ${error.message}`, 'error');
+            });
+        }
+    }
+
+    function handleToggleEnableAlert(event) {
+        const alertId = event.target.dataset.alertId;
+        const isEnabled = event.target.dataset.isEnabled === 'true';
+        const action = isEnabled ? 'disable' : 'enable';
+
+        fetch(`/api/alerts/${alertId}/${action}`, { method: 'POST' })
+        .then(response => response.json().then(data => ({ ok: response.ok, status: response.status, body: data })))
+        .then(res => {
+            if (res.ok) {
+                showFeedback(`Alert ${action}d successfully.`, 'success');
+                fetchAndDisplayAlerts(); // Refresh the table to show new status
+            } else {
+                throw new Error(res.body.error || `Failed to ${action} alert. Status: ${res.status}`);
+            }
+        })
+        .catch(error => {
+            console.error(`Error ${action}ing alert:`, error);
+            showFeedback(`Error ${action}ing alert: ${error.message}`, 'error');
+        });
+    }
+
+
     // --- Initialization ---
     setInitialTheme();
     applyThemeToVisuals(); // Initial call, might not do much if no server selected
-    fetchServerList(); // Initial server list load
-    showView('serverListView'); // Start with the server list
+
+    // Navigation event listeners
+    navServerList.addEventListener('click', (e) => { e.preventDefault(); showView('serverListView'); });
+    navAlertConfig.addEventListener('click', (e) => { e.preventDefault(); showView('alertConfigView'); });
+
+    fetchServerList(); // Initial server list load for the default view
+    showView('serverListView'); // Start with the server list view by default
 
     setInterval(fetchServerList, SERVER_LIST_REFRESH_INTERVAL);
 });
