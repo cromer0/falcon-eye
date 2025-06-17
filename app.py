@@ -268,6 +268,8 @@ def historical_data_collector():
         cycle_start_time = datetime.datetime.now()
         logger.info(f"Starting new collection cycle at {cycle_start_time.isoformat()}")
 
+        processed_server_names_in_cycle = set()
+
         with collector_status_lock:
             collector_status_info['last_cycle_start_time'] = cycle_start_time.isoformat()
             collector_status_info['servers_processed_in_last_cycle'] = 0
@@ -288,6 +290,7 @@ def historical_data_collector():
                 store_stats('local', local_stats['cpu_percent'], local_stats['ram_percent'], local_stats['disk_percent'])
                 logger.info("Successfully collected and initiated storage for local server stats.")
                 local_processed_successfully = True
+                processed_server_names_in_cycle.add('local')
             except Exception as e_local:
                 logger.error(f"Error collecting or storing local server stats: {e_local}", exc_info=True)
                 # No specific increment for failed local here, handled by servers_failed_in_last_cycle if 'local' is part of servers loop
@@ -302,6 +305,11 @@ def historical_data_collector():
             # and values are the server configuration dictionaries.
             for server_index, remote_server_config in server_configs_map.items():
                 server_display_name = remote_server_config.get('name', remote_server_config.get('host', f"ServerIndex_{server_index}"))
+
+                if server_display_name in processed_server_names_in_cycle:
+                    logger.warning(f"Skipping duplicate configuration for server name: {server_display_name} in this cycle.")
+                    continue
+
                 try:
                     # Skip collection for servers marked as 'is_local: true' in config,
                     # as their stats are (or should be) collected by the local collector above.
@@ -311,10 +319,13 @@ def historical_data_collector():
                     if remote_server_config.get('is_local', False):
                         logger.debug(f"Skipping historical data collection for '{server_display_name}' as it's marked local; already processed or psutil direct.")
                         # It was processed as 'local' above, so no increment to servers_processed here for this entry.
+                        # However, we should add it to the set to prevent processing another config with the same name.
+                        processed_server_names_in_cycle.add(server_display_name)
                         continue
 
                     remote_processed_successfully = False
                     logger.info(f"Attempting to fetch historical stats for remote server: {server_display_name}")
+                    processed_server_names_in_cycle.add(server_display_name)
                     try:
                         remote_stats = get_remote_server_stats(remote_server_config, server_configs_map)
                         if remote_stats and remote_stats.get('status') == 'online':
