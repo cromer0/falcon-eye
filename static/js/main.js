@@ -620,15 +620,15 @@ const getChartJsThemeOptions = () => {
                     const actionsCell = row.insertCell();
                     actionsCell.classList.add('actions-cell');
                     const editButton = document.createElement('button');
-                    editButton.textContent = 'Edit';
-                    editButton.className = 'button-secondary button-small';
+                    editButton.innerHTML = '✎ Edit'; // Added icon
+                    editButton.className = 'btn-edit-alert'; // Changed class
                     editButton.dataset.alertId = alert.id;
                     editButton.addEventListener('click', handleEditAlert);
                     actionsCell.appendChild(editButton);
 
                     const deleteButton = document.createElement('button');
-                    deleteButton.textContent = 'Delete';
-                    deleteButton.className = 'button-danger button-small';
+                    deleteButton.innerHTML = '🗑️ Delete'; // Added icon
+                    deleteButton.className = 'btn-delete-alert'; // Changed class
                     deleteButton.dataset.alertId = alert.id;
                     deleteButton.addEventListener('click', handleDeleteAlert);
                     actionsCell.appendChild(deleteButton);

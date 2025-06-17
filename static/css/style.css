@@ -888,7 +888,13 @@ body.dark-mode #alertConfigView .card {
     text-align: left;
     vertical-align: middle; /* Ensure content is vertically centered */
     border-bottom: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-color); /* Add vertical lines */
     font-size: 0.9em; /* Consistent with remoteServersTable */
+}
+
+#alertConfigView #alertsTable th:last-child,
+#alertConfigView #alertsTable td:last-child {
+    border-right: none; /* Remove vertical line from the last cell in a row */
 }
 
 #alertConfigView #alertsTable thead th {
@@ -933,6 +939,9 @@ body.dark-mode #alertConfigView #alertsTable tbody tr:hover {
     background-color: var(--gauge-ram-color); /* Yellowish for edit */
     color: #fff; /* Or a dark color depending on the exact yellow */
     border-color: var(--gauge-ram-color);
+    display: inline-flex; /* Align icon and text */
+    align-items: center;
+    gap: 0.4em; /* Space between icon and text */
 }
 #alertConfigView #alertsTable .btn-edit-alert:hover {
     opacity: 0.8;
@@ -948,6 +957,9 @@ body.dark-mode #alertConfigView #alertsTable .btn-edit-alert {
     background-color: var(--progress-bar-red); /* Red for delete */
     color: white;
     border-color: var(--progress-bar-red);
+    display: inline-flex; /* Align icon and text */
+    align-items: center;
+    gap: 0.4em; /* Space between icon and text */
 }
 #alertConfigView #alertsTable .btn-delete-alert:hover {
     opacity: 0.8;
