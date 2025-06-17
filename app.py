@@ -1600,4 +1600,3 @@ if __name__ == '__main__':
     # No separate alert evaluation thread is started here to keep it sequential after data collection.
 
     logger.info("Starting Flask development server. Note: Flask's internal logs may also be shown if DEBUG is true.")
-    app.run(debug=False, host='0.0.0.0', port=5000)

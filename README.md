@@ -15,7 +15,7 @@ FalconEye is a web application to monitor server performance metrics for local a
 
 ## Tech Stack
 
-*   **Backend**: Python (Flask)
+*   **Backend**: Python (Flask), Waitress (WSGI Server)
 *   **Frontend**: HTML, CSS, JavaScript
 *   **Libraries**:
     *   `psutil`: For fetching local system metrics.
@@ -23,7 +23,9 @@ FalconEye is a web application to monitor server performance metrics for local a
     *   `Chart.js`: For rendering charts.
     *   `dotenv`: For managing environment variables.
 
-## Setup and Configuration
+## Setup and Configuration (for Local Development without Docker)
+
+These instructions are for running the application directly on your machine, for development or if you are not using Docker.
 
 1.  **Clone the repository:**
     ```bash
@@ -74,7 +76,6 @@ FalconEye is a web application to monitor server performance metrics for local a
         *   `ALERT_COOLDOWN_MINUTES`: Minimum time in minutes before another alert notification is sent for the same rule if the condition persists (default: 30).
         *   `MINIMUM_DATA_POINTS_FOR_ALERT_PERCENTAGE`: The minimum percentage of expected data points that must be present within an alert's time window for it to be evaluated (default: 0.8, i.e., 80%). This helps prevent false positives if data collection was temporarily gappy.
 
-
 5.  **Database Initialization:**
     *   The application will attempt to initialize the database (create tables, including the `alerts` table) on the first run based on the `DATABASE_TYPE` specified in your `.env` file.
     *   For SQLite, the database file will be created in the `data/` directory (e.g., `data/sys_stats.db`). Ensure the `data/` directory is writable by the application.
@@ -85,20 +86,42 @@ FalconEye is a web application to monitor server performance metrics for local a
     *   To use your own logo, replace this file with your desired image (e.g., an SVG or PNG file).
     *   If you use a different filename or path, update the references in `templates/index.html` and `templates/login.html`.
 
-## Running the Application
+## Running with Docker (Recommended)
 
-1.  **Ensure your environment variables are set** in the `.env` file.
-2.  **Start the Flask development server:**
+To build and run the application using Docker:
+
+1.  **Build the Docker image:**
+    Ensure your `.env` file is configured as described in the "Setup and Configuration" section. The `Dockerfile` copies this `.env` file into the image.
+    ```bash
+    docker build -t falcon-eye .
+    ```
+
+2.  **Run the Docker container:**
+    ```bash
+    docker run -p 8080:8080 falcon-eye
+    ```
+    The application will be accessible at [http://localhost:8080](http://localhost:8080).
+    The `PORT` environment variable inside the Docker container is set to `8080` by the `Dockerfile`.
+
+## Running the Application (Local Development without Docker)
+
+1.  **Ensure your environment variables are set** in the `.env` file as per the "Setup and Configuration" section.
+2.  **Start the Flask development server (not recommended for production):**
     ```bash
     python app.py
     ```
-3.  Open your web browser and navigate to `http://localhost:5000` (or the host/port configured if you changed it).
+    This will use Flask's built-in development server. The application will typically be accessible at `http://localhost:5000` (this was the default for `app.py` before Dockerization, but it's not used by the Docker setup). For production, use Docker or a dedicated WSGI server.
+
+## Deployment
+
+The application is configured to be deployed using Docker.
+The `Dockerfile` sets up a Python 3.9 environment, installs dependencies, and uses **Waitress** as the production WSGI server to serve the Flask application on port 8080 within the container.
 
 ## Development Notes
 
-*   **SSH Key Paths**: When using SSH keys (`REMOTE_SERVER_X_KEY_PATH`), ensure the path is correct from the perspective of the machine running the Flask application. Use absolute paths or paths relative to the application's root directory if necessary. `~` for home directory expansion is supported.
+*   **SSH Key Paths**: When using SSH keys (`REMOTE_SERVER_X_KEY_PATH`), and not running in Docker, ensure the path is correct from the perspective of the machine running the Flask application. Use absolute paths or paths relative to the application's root directory if necessary. `~` for home directory expansion is supported. If running in Docker, you would need to ensure the keys are accessible inside the container (e.g., by mounting them as volumes), and the paths in `.env` reflect their location within the container.
 *   **Jump Servers**: If a target server is behind a jump server, ensure the jump server configuration (`REMOTE_SERVER_X_JUMP_SERVER` pointing to another server's index) and its own authentication details are correctly set up.
-*   **Firewalls**: Ensure that any firewalls (on the machine running the app, on the remote servers, or network firewalls) allow SSH connections on the specified ports.
+*   **Firewalls**: Ensure that any firewalls (on the machine running the app, on the remote servers, or network firewalls) allow SSH connections on the specified ports. When using Docker, also ensure the host machine's firewall allows connections on the mapped port (e.g., 8080).
 
 ## Alerting System
 
