@@ -105,36 +105,32 @@ To build and run the application using Docker:
 
 ## Running the Application (Local Development without Docker)
 
-For local development or testing outside of Docker, you have a couple of options. First, ensure your environment variables are set in the `.env` file as per the "Setup and Configuration (for Local Development without Docker)" section.
+To run the application locally for development or testing outside of Docker, you can use an environment variable to enable the Flask development server. First, ensure your general environment variables (like database connections, API keys, etc.) are set in the `.env` file as per the "Setup and Configuration (for Local Development without Docker)" section.
 
-### Method 1: Temporarily modify `app.py`
+1.  **Set the environment variable and run `app.py`:**
+    Open your terminal in the project's root directory and run:
 
-1.  Open `app.py`.
-2.  Add the following lines at the very end of the file:
-    ```python
-    if __name__ == '__main__':
-        app.run(debug=True, host='0.0.0.0', port=5000)
+    ```bash
+    export FALCON_EYE_ENV=development
+    python app.py
     ```
-3.  Run the application directly:
+    (For Windows Command Prompt, use `set FALCON_EYE_ENV=development` and then `python app.py`. For PowerShell, use `$env:FALCON_EYE_ENV="development"` and then `python app.py`.)
+
+    The application will then start in development mode, typically accessible at `http://localhost:5000`. The console will show messages from the Flask development server.
+
+2.  **Using a `.env` file (Recommended for convenience):**
+    You can add the `FALCON_EYE_ENV` variable directly to your existing `.env` file in the root of the project (this file is typically ignored by Git if `.env` is in `.gitignore`). Add the following line to your `.env` file:
+    ```
+    FALCON_EYE_ENV=development
+    ```
+    With this line in your `.env` file, you can simply run:
     ```bash
     python app.py
     ```
-    The application will be accessible at `http://localhost:5000`.
+    The application will automatically pick up the `FALCON_EYE_ENV` variable from the `.env` file because `python-dotenv` is used at the beginning of `app.py` to load all variables from this file.
 
-    **Important:** If you use this method, remember to remove or comment out these lines before building your Docker image for production, as the Docker container uses Waitress to serve the application on port 8080.
-
-### Method 2: Use the Flask CLI
-
-1.  Ensure Flask is installed in your local environment (it's in `requirements.txt`).
-2.  Set the necessary environment variables and run the Flask development server:
-    ```bash
-    export FLASK_APP=app.py
-    export FLASK_ENV=development # Enables debug mode
-    flask run --host=0.0.0.0 --port=5000
-    ```
-    (For Windows, use `set` instead of `export`: `set FLASK_APP=app.py` and `set FLASK_ENV=development`)
-
-    The application will be accessible at `http://localhost:5000`.
+**Note on Production Mode:**
+If `FALCON_EYE_ENV` is not set or is set to any value other than `development`, running `python app.py` directly will **not** start a web server. In this scenario, the `app.py` script prepares the application instance but relies on a production WSGI server (like Waitress, which is used in the `Dockerfile`) to actually serve the application. This is the intended behavior for production deployments.
 
 ## Deployment
 
