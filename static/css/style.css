@@ -14,9 +14,12 @@ body {
     --border-color: #e0e0e0;
     --primary-color: #007bff;
     --gauge-track-color: #e9ecef;
-    --gauge-cpu-color: #28a745; /* Green */
-    --gauge-ram-color: #ffc107; /* Yellow */
-    --gauge-disk-color: #17a2b8; /* Teal */
+    --gauge-cpu-color: #28a745;
+    /* Green */
+    --gauge-ram-color: #ffc107;
+    /* Yellow */
+    --gauge-disk-color: #17a2b8;
+    /* Teal */
     --chart-line-cpu: #28a745;
     --chart-line-ram: #ffc107;
     --chart-line-disk: #17a2b8;
@@ -66,10 +69,14 @@ header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 10px 25px; /* Adjusted padding slightly */
-    background-color: var(--primary-color); /* Moved from original header block */
-    color: white; /* Moved from original header block */
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1); /* Moved from original header block */
+    padding: 10px 25px;
+    /* Adjusted padding slightly */
+    background-color: var(--primary-color);
+    /* Moved from original header block */
+    color: white;
+    /* Moved from original header block */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    /* Moved from original header block */
 }
 
 .header-content {
@@ -78,7 +85,8 @@ header {
 }
 
 #headerLogo {
-    height: 30px; /* Adjust as needed */
+    height: 30px;
+    /* Adjust as needed */
     margin-right: 15px;
 }
 
@@ -96,11 +104,13 @@ header {
     cursor: pointer;
     font-weight: bold;
     transition: background-color 0.2s, color 0.2s;
-    margin-left: 10px; /* Or margin-right on darkModeToggle */
+    margin-left: 10px;
+    /* Or margin-right on darkModeToggle */
 }
 
 body.dark-mode #logoutButton {
-    background-color: var(--bg-color); /* Consistent with darkModeToggle */
+    background-color: var(--bg-color);
+    /* Consistent with darkModeToggle */
     color: var(--primary-color);
     border-color: var(--primary-color);
 }
@@ -124,6 +134,7 @@ header h1 {
     font-weight: bold;
     transition: background-color 0.2s, color 0.2s;
 }
+
 body.dark-mode #darkModeToggle {
     background-color: var(--bg-color);
     color: var(--primary-color);
@@ -154,8 +165,10 @@ body.dark-mode #darkModeToggle {
 .tab-button.active {
     background-color: var(--tab-active-bg);
     color: var(--tab-active-text);
-    border-bottom: 3px solid var(--primary-color); /* Highlight active tab */
+    border-bottom: 3px solid var(--primary-color);
+    /* Highlight active tab */
 }
+
 body.dark-mode .tab-button.active {
     border-bottom: 3px solid var(--primary-color);
 }
@@ -179,8 +192,13 @@ main {
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
 }
 
 h2 {
@@ -188,7 +206,79 @@ h2 {
     border-bottom: 2px solid var(--border-color);
     padding-bottom: 10px;
     margin-top: 0;
+    margin-bottom: 20px;
+    /* Consistent spacing below view titles */
 }
+
+/* Main Navigation */
+.main-nav {
+    background-color: var(--card-bg-color);
+    padding: 0 20px;
+    /* Align with main content padding */
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 20px;
+    /* Space before main content */
+}
+
+.main-nav ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    /* Align items in a row */
+}
+
+.main-nav li {
+    margin-right: 5px;
+    /* Small space between nav items */
+}
+
+.main-nav .nav-item {
+    display: block;
+    padding: 12px 18px;
+    text-decoration: none;
+    color: var(--text-color);
+    font-weight: 500;
+    border-bottom: 3px solid transparent;
+    /* Placeholder for active state */
+    transition: color 0.2s, border-bottom-color 0.2s;
+}
+
+.main-nav .nav-item:hover {
+    color: var(--primary-color);
+}
+
+.main-nav .nav-item.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+    font-weight: 600;
+}
+
+/* Dark Mode for Main Navigation */
+body.dark-mode .main-nav {
+    background-color: var(--card-bg-color);
+    /* Already uses variable */
+    border-bottom-color: var(--border-color);
+    /* Already uses variable */
+}
+
+body.dark-mode .main-nav .nav-item {
+    color: var(--text-color);
+    /* Already uses variable */
+}
+
+body.dark-mode .main-nav .nav-item:hover {
+    color: var(--primary-color);
+    /* Already uses variable */
+}
+
+body.dark-mode .main-nav .nav-item.active {
+    color: var(--primary-color);
+    /* Already uses variable */
+    border-bottom-color: var(--primary-color);
+    /* Already uses variable */
+}
+
 
 /* Gauges */
 .gauges-container {
@@ -203,13 +293,14 @@ h2 {
     background-color: var(--card-bg-color);
     border-radius: 8px;
     padding: 20px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
     text-align: center;
     min-width: 250px;
     flex: 1;
 }
+
 body.dark-mode .gauge-wrapper {
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
 }
 
 
@@ -221,40 +312,49 @@ body.dark-mode .gauge-wrapper {
 
 /* Login Page Styles */
 /* Making body selector more specific for login page context if needed, or assuming it's fine globally for login */
-.login-page-body { /* Use a class on body tag on login.html if this needs to be specific */
+.login-page-body {
+    /* Use a class on body tag on login.html if this needs to be specific */
     display: flex;
     justify-content: center;
     align-items: center;
     min-height: 100vh;
     /* background-color and color are already set by global body styles */
 }
+
 .login-container {
     background-color: var(--card-bg-color);
     padding: 40px;
     border-radius: 8px;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
     width: 100%;
     max-width: 400px;
     text-align: center;
 }
+
 .login-logo img {
     max-width: 150px;
     margin-bottom: 20px;
 }
-.login-container h1 { /* This will conflict with header h1 if not careful. Assuming login.html h1 is different. */
+
+.login-container h1 {
+    /* This will conflict with header h1 if not careful. Assuming login.html h1 is different. */
     color: var(--primary-color);
     margin-bottom: 20px;
-    font-size: 1.8em; /* Example, adjust as needed */
+    font-size: 1.8em;
+    /* Example, adjust as needed */
 }
+
 .form-group {
     margin-bottom: 20px;
     text-align: left;
 }
+
 .form-group label {
     display: block;
     margin-bottom: 5px;
     font-weight: 500;
 }
+
 .form-group input[type="text"],
 .form-group input[type="password"] {
     width: 100%;
@@ -265,6 +365,7 @@ body.dark-mode .gauge-wrapper {
     background-color: var(--bg-color);
     color: var(--text-color);
 }
+
 .login-button {
     background-color: var(--primary-color);
     color: white;
@@ -276,24 +377,30 @@ body.dark-mode .gauge-wrapper {
     width: 100%;
     transition: background-color 0.2s;
 }
+
 .login-button:hover {
     opacity: 0.9;
 }
+
 .flash-messages {
     list-style: none;
     padding: 0;
     margin-bottom: 20px;
 }
+
 .flash-messages li {
     padding: 10px;
     border-radius: 5px;
     margin-bottom: 10px;
 }
+
 .flash-messages .danger {
-    background-color: #f8d7da; /* Bootstrap danger */
+    background-color: #f8d7da;
+    /* Bootstrap danger */
     color: #721c24;
     border: 1px solid #f5c6cb;
 }
+
 body.dark-mode .flash-messages .danger {
     background-color: #582c33;
     color: #f8d7da;
@@ -302,8 +409,10 @@ body.dark-mode .flash-messages .danger {
 
 .gauge {
     position: relative;
-    width: 150px; /* Adjust as needed */
-    height: 150px; /* Adjust as needed */
+    width: 150px;
+    /* Adjust as needed */
+    height: 150px;
+    /* Adjust as needed */
     margin: 0 auto 10px auto;
 }
 
@@ -340,11 +449,12 @@ body.dark-mode .flash-messages .danger {
     background-color: var(--card-bg-color);
     border-radius: 8px;
     padding: 20px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
     margin-bottom: 20px;
 }
+
 body.dark-mode .chart-container {
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
 }
 
 .chart-container canvas {
@@ -357,39 +467,48 @@ body.dark-mode .chart-container {
         flex-direction: column;
         align-items: flex-start;
     }
+
     #darkModeToggle {
         margin-top: 10px;
     }
+
     .gauges-container {
         flex-direction: column;
         align-items: center;
     }
+
     .gauge-wrapper {
         width: 90%;
         max-width: 300px;
     }
+
     .tabs {
         flex-direction: column;
     }
+
     .tab-button {
         width: 100%;
         text-align: left;
         border-bottom: 1px solid var(--border-color);
     }
+
     .tab-button.active {
-        border-bottom: 3px solid var(--primary-color); /* Keep bottom border for active on mobile */
+        border-bottom: 3px solid var(--primary-color);
+        /* Keep bottom border for active on mobile */
     }
 }
 
 .table-container {
-    overflow-x: auto; /* For responsive tables */
+    overflow-x: auto;
+    /* For responsive tables */
     background-color: var(--card-bg-color);
     padding: 15px;
     border-radius: 8px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
 }
+
 body.dark-mode .table-container {
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
 }
 
 
@@ -399,7 +518,8 @@ body.dark-mode .table-container {
     margin-top: 10px;
 }
 
-#remoteServersTable th, #remoteServersTable td {
+#remoteServersTable th,
+#remoteServersTable td {
     padding: 10px 12px;
     text-align: left;
     border-bottom: 1px solid var(--border-color);
@@ -411,8 +531,9 @@ body.dark-mode .table-container {
     color: var(--primary-color);
     font-weight: 600;
 }
+
 body.dark-mode #remoteServersTable th {
-     background-color: color-mix(in srgb, var(--card-bg-color) 90%, var(--text-color) 10%);
+    background-color: color-mix(in srgb, var(--card-bg-color) 90%, var(--text-color) 10%);
 }
 
 
@@ -421,54 +542,68 @@ body.dark-mode #remoteServersTable th {
 }
 
 #remoteServersTable td .status-online {
-    color: var(--gauge-cpu-color); /* Green */
+    color: var(--gauge-cpu-color);
+    /* Green */
     font-weight: bold;
 }
+
 #remoteServersTable td .status-offline {
-    color: #dc3545; /* Red */
+    color: #dc3545;
+    /* Red */
     font-weight: bold;
 }
+
 #remoteServersTable td .status-error {
-    color: #fd7e14; /* Orange */
+    color: #fd7e14;
+    /* Orange */
     font-weight: bold;
 }
 
 /* Progress Bar Styling (Optional, for visual representation in table) */
 .progress-bar-container {
     width: 100%;
-    min-width: 80px; /* Ensure it's visible */
+    min-width: 80px;
+    /* Ensure it's visible */
     background-color: var(--gauge-track-color);
     border-radius: 4px;
     overflow: hidden;
     height: 18px;
     display: flex;
     align-items: center;
-    position: relative; /* For text overlay */
+    position: relative;
+    /* For text overlay */
 }
 
 .progress-bar {
     height: 100%;
     background-color: var(--primary-color);
     text-align: center;
-    line-height: 18px; /* Match height */
+    line-height: 18px;
+    /* Match height */
     color: white;
     font-size: 0.8em;
     transition: width 0.3s ease-in-out;
     white-space: nowrap;
 }
+
 .progress-bar-text {
     position: absolute;
     left: 5px;
     right: 5px;
     text-align: center;
     font-size: 0.8em;
-    color: var(--text-color); /* Ensure text is visible over bar */
+    color: var(--text-color);
+    /* Ensure text is visible over bar */
     font-weight: 500;
-    mix-blend-mode: difference; /* Makes text visible on varied backgrounds */
+    mix-blend-mode: difference;
+    /* Makes text visible on varied backgrounds */
 }
+
 body.dark-mode .progress-bar-text {
-    color: #fff; /* Brighter text for dark mode */
-    mix-blend-mode: normal; /* Or adjust for best visibility */
+    color: #fff;
+    /* Brighter text for dark mode */
+    mix-blend-mode: normal;
+    /* Or adjust for best visibility */
 }
 
 .tooltip-icon {
@@ -489,6 +624,7 @@ body.dark-mode .progress-bar-text {
     align-items: center;
     position: relative;
 }
+
 .progress-bar-container:last-child {
     margin-bottom: 0;
 }
@@ -498,12 +634,16 @@ body.dark-mode .progress-bar-text {
     /* background-color will be set by JS */
     text-align: center;
     line-height: 18px;
-    color: white; /* Text color on the bar itself */
+    color: white;
+    /* Text color on the bar itself */
     font-size: 0.8em;
-    transition: width 0.3s ease-in-out, background-color 0.3s ease-in-out; /* Added background-color transition */
+    transition: width 0.3s ease-in-out, background-color 0.3s ease-in-out;
+    /* Added background-color transition */
     white-space: nowrap;
 }
-.progress-bar-text { /* Text overlay on the progress bar container */
+
+.progress-bar-text {
+    /* Text overlay on the progress bar container */
     position: absolute;
     left: 5px;
     right: 5px;
@@ -511,28 +651,39 @@ body.dark-mode .progress-bar-text {
     font-size: 0.8em;
     color: var(--text-color);
     font-weight: 500;
-    mix-blend-mode: difference; /* Helps text visibility on varied bar colors */
-    pointer-events: none; /* So it doesn't interfere with tooltips on the bar itself */
+    mix-blend-mode: difference;
+    /* Helps text visibility on varied bar colors */
+    pointer-events: none;
+    /* So it doesn't interfere with tooltips on the bar itself */
 }
+
 body.dark-mode .progress-bar-text {
     color: #fff;
-    mix-blend-mode: normal; /* Often better for dark mode */
+    mix-blend-mode: normal;
+    /* Often better for dark mode */
 }
 
 /* Container for multiple progress bars in one cell */
 .multi-progress-bar-cell {
     display: flex;
-    flex-direction: column; /* Stack CPU, RAM, Disk vertically within the cell */
-    gap: 2px; /* Small gap between bars */
-    min-width: 150px; /* Ensure the cell has some width */
+    flex-direction: column;
+    /* Stack CPU, RAM, Disk vertically within the cell */
+    gap: 2px;
+    /* Small gap between bars */
+    min-width: 150px;
+    /* Ensure the cell has some width */
 }
+
 .view {
-    display: none; /* Hide views by default */
+    display: none;
+    /* Hide views by default */
     padding: 20px;
     animation: fadeIn 0.5s;
 }
+
 .view.active {
-    display: block; /* Show active view */
+    display: block;
+    /* Show active view */
 }
 
 #backToServerListButton {
@@ -545,9 +696,12 @@ body.dark-mode .progress-bar-text {
     cursor: pointer;
     font-size: 0.9em;
 }
+
 body.dark-mode #backToServerListButton {
-    background-color: var(--primary-color); /* Keep consistent or adjust for dark */
+    background-color: var(--primary-color);
+    /* Keep consistent or adjust for dark */
 }
+
 #backToServerListButton:hover {
     opacity: 0.9;
 }
@@ -555,8 +709,10 @@ body.dark-mode #backToServerListButton {
 
 /* Server List Table Specifics */
 #remoteServersTable tbody tr {
-    cursor: pointer; /* Indicate rows are clickable */
+    cursor: pointer;
+    /* Indicate rows are clickable */
 }
+
 #remoteServersTable tbody tr:hover {
     background-color: color-mix(in srgb, var(--card-bg-color) 90%, var(--text-color) 10%);
 }
@@ -568,11 +724,12 @@ body.dark-mode #backToServerListButton {
     background-color: var(--card-bg-color);
     border-bottom: 1px solid var(--border-color);
     margin-bottom: 20px;
-    margin-top:10px;
+    margin-top: 10px;
 }
 
 .detail-tab-button {
-    padding: 12px 18px; /* Slightly smaller than main tabs */
+    padding: 12px 18px;
+    /* Slightly smaller than main tabs */
     cursor: pointer;
     border: none;
     background-color: var(--tab-inactive-bg);
@@ -592,6 +749,7 @@ body.dark-mode #backToServerListButton {
 .detail-tab-content {
     display: none;
 }
+
 .detail-tab-content.active {
     display: block;
 }
@@ -600,18 +758,456 @@ body.dark-mode #backToServerListButton {
 #serverDetailView .gauges-container {
     margin-top: 15px;
 }
-#serverDetailView .gauge-wrapper h4 { /* Use h4 for sub-headings */
+
+#serverDetailView .gauge-wrapper h4 {
+    /* Use h4 for sub-headings */
     margin-top: 0;
     margin-bottom: 10px;
     font-size: 1.1em;
 }
+
 #serverDetailView .gauge-detail {
     font-size: 0.85em;
 }
+
 #historicalDataMessage {
     padding: 20px;
     text-align: center;
     background-color: var(--card-bg-color);
     border-radius: 5px;
     color: var(--text-color);
+}
+
+/* Alert Configuration Form Styles */
+#alertConfigView .form-group {
+    margin-bottom: 25px;
+    /* Increased bottom margin for better separation */
+}
+
+#alertConfigView .form-group label {
+    display: block;
+    margin-bottom: 8px;
+    /* Clearer association with input */
+    font-weight: 500;
+    color: var(--text-color);
+}
+
+#alertConfigView .form-group input[type="text"],
+#alertConfigView .form-group input[type="number"],
+#alertConfigView .form-group select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    box-sizing: border-box;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-size: 0.95em;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+#alertConfigView .form-group input[type="text"]:focus,
+#alertConfigView .form-group input[type="number"]:focus,
+#alertConfigView .form-group select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 30%, transparent);
+}
+
+#alertConfigView .form-row {
+    display: flex;
+    gap: 15px;
+    /* Space between items in a row */
+    align-items: center;
+    /* Align items vertically */
+}
+
+#alertConfigView .form-row .form-group {
+    flex: 1;
+    /* Allow form groups to grow */
+    margin-bottom: 0;
+    /* Remove bottom margin when in a row */
+}
+
+/* Validation Message Placeholder Style */
+#alertConfigView .validation-error {
+    display: block;
+    /* Ensure it takes its own line */
+    color: var(--progress-bar-red);
+    font-size: 0.85em;
+    margin-top: 5px;
+}
+
+/* Button Styling for Alert Config */
+#alertConfigView .form-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    /* Align buttons to the right */
+    margin-top: 25px;
+}
+
+#alertConfigView #saveAlertButton,
+#alertConfigView #cancelEditAlertButton {
+    padding: 10px 18px;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.95em;
+    font-weight: 500;
+    transition: opacity 0.2s;
+}
+
+#alertConfigView #saveAlertButton {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+body.dark-mode #alertConfigView #saveAlertButton {
+    background-color: var(--primary-color);
+    /* Ensure consistency or adjust if needed */
+}
+
+
+#alertConfigView #saveAlertButton:hover {
+    opacity: 0.85;
+}
+
+#alertConfigView #cancelEditAlertButton {
+    background-color: var(--card-bg-color);
+    color: var(--text-color);
+    border-color: var(--border-color);
+}
+
+body.dark-mode #alertConfigView #cancelEditAlertButton {
+    background-color: var(--bg-color);
+    /* Or a slightly different shade for secondary buttons */
+    color: var(--text-color);
+    border-color: var(--border-color);
+}
+
+#alertConfigView #cancelEditAlertButton:hover {
+    background-color: color-mix(in srgb, var(--card-bg-color) 90%, var(--text-color) 10%);
+}
+
+body.dark-mode #alertConfigView #cancelEditAlertButton:hover {
+    background-color: color-mix(in srgb, var(--bg-color) 90%, var(--text-color) 10%);
+}
+
+/* General Card Styling for AlertConfigView Sections */
+#alertConfigView .card {
+    background-color: var(--card-bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    /* Consistent with .gauge-wrapper, .login-container */
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+    /* Consistent with .gauge-wrapper */
+    padding: 20px;
+    /* Default padding for card content */
+    margin-bottom: 25px;
+    /* Space between cards */
+}
+
+body.dark-mode #alertConfigView .card {
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    /* Consistent with .gauge-wrapper.dark-mode */
+}
+
+#alertConfigView .card .card-header {
+    padding: 15px 20px;
+    /* Padding for the header section */
+    margin: -20px -20px 20px -20px;
+    /* Extend to edges of card padding, and add bottom margin */
+    border-bottom: 1px solid var(--border-color);
+}
+
+#alertConfigView .card .card-header h3 {
+    margin: 0;
+    font-size: 1.2em;
+    color: var(--text-color);
+    /* Using text-color for less emphasis than primary-color */
+    font-weight: 500;
+    /* Medium weight for card titles */
+}
+
+/* Adjust .table-container if it's being used as a card directly */
+/* The previous subtask added margin-top: 25px. */
+/* We'll ensure it uses the .card class's margin-bottom for consistency if it's a separate card. */
+/* For now, assuming .table-container might be wrapped by a .card or be a .card itself. */
+/* If .table-container is treated as a card, its specific padding might override .card padding. */
+/* The .table-container already has padding: 15px. .card has padding: 20px. */
+/* If a .card wraps .table-container, the table-container might not need its own top margin. */
+
+#alertConfigView .table-container {
+    /* Remove margin-top if it's inside a .card that provides margin-bottom */
+    /* margin-top: 0; */
+    /* This would be if .card is its direct parent */
+    /* Keep existing padding, border-radius, box-shadow if it functions as the card itself */
+    /* If it IS a card, ensure its margin-bottom is consistent or it's wrapped by something that provides it */
+    margin-top: 0;
+    /* Assuming it will be wrapped by a div with class="card" */
+    margin-bottom: 0;
+    /* Card wrapper will handle this */
+    padding: 0;
+    /* Card wrapper will handle this */
+    background-color: transparent;
+    /* Card wrapper will handle this */
+    border: none;
+    /* Card wrapper will handle this */
+    box-shadow: none;
+    /* Card wrapper will handle this */
+    border-radius: 0;
+    /* Card wrapper will handle this */
+}
+
+#alertConfigView .card>.table-container {
+    /* If table-container is a direct child of a card */
+    padding: 0;
+    /* Card provides padding */
+    margin-top: 0;
+    /* Card provides spacing */
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+    /* Let card define outer radius */
+}
+
+#alertConfigView .card>.table-container #alertsTable {
+    margin-top: 0;
+    /* Table itself should not have extra margin if card header and padding handle it */
+}
+
+
+/* Alert Configuration Table Styles */
+/* #alertConfigView .table-container IS NOW ASSUMED TO BE WRAPPED BY A .card */
+/* Or it might get .card class itself in HTML */
+/* The margin-top: 25px from previous task is now handled by .card's margin-bottom */
+
+/* Original .table-container styles that are relevant if it's NOT wrapped by .card:
+    overflow-x: auto;
+    background-color: var(--card-bg-color);
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+   body.dark-mode & { box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+*/
+/* We need to ensure overflow-x: auto remains on the direct table wrapper if needed. */
+/* If .card wraps .table-container, then .table-container should retain overflow-x:auto */
+/* and potentially its own padding if the card's padding is not desired for the table area itself. */
+
+/* Let's simplify: Assume .form-card and .table-card are specific divs in HTML that get the .card class. */
+/* The .table-container will be inside the .card representing the table section. */
+#alertConfigView .card.form-card {
+    /* Specific styles for form card if any - currently none needed, uses generic .card */
+}
+
+#alertConfigView .card.table-card .table-container {
+    /* This is the div that needs overflow scrolling for the table */
+    overflow-x: auto;
+    padding: 0;
+    /* Padding is handled by the .card.table-card */
+    margin-top: 0;
+    /* Spacing is handled by .card-header and .card padding */
+    background-color: transparent;
+    /* Card provides background */
+    border: none;
+    /* Card provides border */
+    box-shadow: none;
+    /* Card provides shadow */
+    border-radius: 0;
+}
+
+#alertConfigView .card.table-card .table-container #alertsTable {
+    margin-top: 0px;
+    /* Table itself should not have extra margin */
+    /* Styling for .table-container is now part of .card.table-card setup */
+}
+#alertConfigView #alertsTable {
+    width: 100%;
+    border-collapse: collapse;
+    /* margin-top is handled by .card.table-card .card-header or card padding */
+}
+
+#alertConfigView #alertsTable th,
+#alertConfigView #alertsTable td {
+    padding: 12px 15px;
+    text-align: left;
+    vertical-align: middle;
+    /* Ensure content is vertically centered */
+    border-bottom: 1px blue;
+    border-right: 1px solid var(--border-color);
+    /* Add vertical lines */
+    font-size: 0.9em;
+    /* Consistent with remoteServersTable */
+}
+
+#alertConfigView #alertsTable th:last-child,
+#alertConfigView #alertsTable td:last-child {
+    border-right: none;
+    /* Remove vertical line from the last cell in a row */
+}
+
+#alertConfigView #alertsTable thead th {
+    background-color: color-mix(in srgb, var(--card-bg-color) 92%, var(--text-color) 8%);
+    color: var(--primary-color);
+    /* Or var(--text-color) for less emphasis */
+    font-weight: 600;
+    font-size: 0.95em;
+    /* Slightly larger for header */
+}
+
+body.dark-mode #alertConfigView #alertsTable thead th {
+    background-color: color-mix(in srgb, var(--card-bg-color) 85%, var(--text-color) 15%);
+    color: var(--primary-color);
+    /* Or var(--text-color) */
+}
+
+#alertConfigView #alertsTable tbody tr:hover {
+    background-color: color-mix(in srgb, var(--card-bg-color) 95%, var(--text-color) 5%);
+}
+
+body.dark-mode #alertConfigView #alertsTable tbody tr:hover {
+    background-color: color-mix(in srgb, var(--card-bg-color) 90%, var(--text-color) 10%);
+}
+
+/* Styling for buttons in the "Actions" column of alertsTable */
+#alertConfigView #alertsTable .actions-cell {
+    white-space: nowrap;
+    /* Prevent buttons from wrapping */
+    text-align: right;
+    /* Align buttons to the right of the cell */
+}
+
+#alertConfigView #alertsTable .actions-cell button {
+    padding: 6px 10px;
+    font-size: 0.85em;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s, opacity 0.2s;
+    margin-left: 8px;
+    /* Space between buttons */
+    border: 1px solid transparent;
+}
+
+#alertConfigView #alertsTable .actions-cell button:first-child {
+    margin-left: 0;
+}
+
+/* Edit button style - example, assuming .btn-edit-alert class */
+#alertConfigView #alertsTable .btn-edit-alert {
+    background-color: var(--gauge-ram-color);
+    /* Yellowish for edit */
+    color: #fff;
+    /* Or a dark color depending on the exact yellow */
+    border-color: var(--gauge-ram-color);
+    display: inline-flex;
+    /* Align icon and text */
+    align-items: center;
+    gap: 0.4em;
+    /* Space between icon and text */
+}
+
+#alertConfigView #alertsTable .btn-edit-alert:hover {
+    opacity: 0.8;
+}
+
+body.dark-mode #alertConfigView #alertsTable .btn-edit-alert {
+    background-color: color-mix(in srgb, var(--gauge-ram-color) 90%, #000 10%);
+    border-color: color-mix(in srgb, var(--gauge-ram-color) 90%, #000 10%);
+}
+
+
+/* Delete button style - example, assuming .btn-delete-alert class */
+#alertConfigView #alertsTable .btn-delete-alert {
+    background-color: var(--progress-bar-red);
+    /* Red for delete */
+    color: white;
+    border-color: var(--progress-bar-red);
+    display: inline-flex;
+    /* Align icon and text */
+    align-items: center;
+    gap: 0.4em;
+    /* Space between icon and text */
+}
+
+#alertConfigView #alertsTable .btn-delete-alert:hover {
+    opacity: 0.8;
+}
+
+body.dark-mode #alertConfigView #alertsTable .btn-delete-alert {
+    background-color: color-mix(in srgb, var(--progress-bar-red) 90%, #000 10%);
+    border-color: color-mix(in srgb, var(--progress-bar-red) 90%, #000 10%);
+}
+
+/* Responsive adjustments for Alert Configuration View */
+@media (max-width: 768px) {
+    #alertConfigView .form-row {
+        flex-direction: column;
+        /* Stack elements vertically */
+        gap: 0;
+        /* Reset gap, margin will be used on form-group */
+        align-items: stretch;
+        /* Stretch items to full width */
+    }
+
+    #alertConfigView .form-row .form-group {
+        width: 100%;
+        /* Make form groups take full width */
+        margin-bottom: 20px;
+        /* Add margin back (was 25px for standalone, 0 in row) */
+    }
+
+    #alertConfigView .form-row .form-group:last-child {
+        margin-bottom: 0;
+        /* No margin for the last item in a stacked row if it's the end of the form section */
+    }
+
+    /* If form-buttons are also flex and need stacking: */
+    #alertConfigView .form-buttons {
+        flex-direction: column;
+        /* Stack buttons */
+        align-items: stretch;
+        /* Make buttons full width */
+    }
+
+    #alertConfigView .form-buttons button {
+        width: 100%;
+    }
+
+    #alertConfigView .form-buttons button:not(:last-child) {
+        margin-bottom: 10px;
+        /* Space between stacked buttons */
+    }
+
+    /* Adjust card padding for smaller screens if necessary */
+    #alertConfigView .card {
+        padding: 15px;
+    }
+
+    #alertConfigView .card .card-header {
+        padding: 10px 15px;
+        margin: -15px -15px 15px -15px;
+        /* Adjust negative margins for new padding */
+    }
+
+    /* Ensure main navigation also adapts if it becomes too wide */
+    .main-nav ul {
+        flex-wrap: wrap;
+        /* Allow nav items to wrap if they don't fit */
+        justify-content: center;
+        /* Center wrapped items */
+    }
+
+    .main-nav li {
+        margin-right: 0;
+        /* Remove right margin if items are centered or full width */
+    }
+
+    .main-nav .nav-item {
+        text-align: center;
+        /* Center text if items become full width or wrap weirdly */
+        /* Consider reducing padding on smaller screens if space is very tight */
+        /* padding: 10px 15px; */
+    }
 }
