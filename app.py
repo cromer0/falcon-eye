@@ -1577,9 +1577,13 @@ if __name__ == '__main__':
             collector_status_info["servers_configured_count"] = 1
             collector_status_info["configured_server_names"] = ['local']
 
-    collector_thread = threading.Thread(target=historical_data_collector, name="HistoricalDataCollectorThread", daemon=True)
-    collector_thread.start()
-    logger.info("Historical data collector thread started.")
+    # Only start the collector thread if not in debug mode OR if this is the main Werkzeug process
+    if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        collector_thread = threading.Thread(target=historical_data_collector, name="HistoricalDataCollectorThread", daemon=True)
+        collector_thread.start()
+        logger.info("Historical data collector thread started in the appropriate process.")
+    elif app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        logger.info("Flask Debug mode is on and this is the reloader process. Collector thread will not start here.")
 
     # Note: Alert evaluation is called within the historical_data_collector loop.
     # No separate alert evaluation thread is started here to keep it sequential after data collection.
