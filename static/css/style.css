@@ -188,7 +188,67 @@ h2 {
     border-bottom: 2px solid var(--border-color);
     padding-bottom: 10px;
     margin-top: 0;
+    margin-bottom: 20px; /* Consistent spacing below view titles */
 }
+
+/* Main Navigation */
+.main-nav {
+    background-color: var(--card-bg-color);
+    padding: 0 20px; /* Align with main content padding */
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 20px; /* Space before main content */
+}
+
+.main-nav ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex; /* Align items in a row */
+}
+
+.main-nav li {
+    margin-right: 5px; /* Small space between nav items */
+}
+
+.main-nav .nav-item {
+    display: block;
+    padding: 12px 18px;
+    text-decoration: none;
+    color: var(--text-color);
+    font-weight: 500;
+    border-bottom: 3px solid transparent; /* Placeholder for active state */
+    transition: color 0.2s, border-bottom-color 0.2s;
+}
+
+.main-nav .nav-item:hover {
+    color: var(--primary-color);
+}
+
+.main-nav .nav-item.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+    font-weight: 600;
+}
+
+/* Dark Mode for Main Navigation */
+body.dark-mode .main-nav {
+    background-color: var(--card-bg-color); /* Already uses variable */
+    border-bottom-color: var(--border-color); /* Already uses variable */
+}
+
+body.dark-mode .main-nav .nav-item {
+    color: var(--text-color); /* Already uses variable */
+}
+
+body.dark-mode .main-nav .nav-item:hover {
+    color: var(--primary-color); /* Already uses variable */
+}
+
+body.dark-mode .main-nav .nav-item.active {
+    color: var(--primary-color); /* Already uses variable */
+    border-bottom-color: var(--primary-color); /* Already uses variable */
+}
+
 
 /* Gauges */
 .gauges-container {
@@ -614,4 +674,337 @@ body.dark-mode #backToServerListButton {
     background-color: var(--card-bg-color);
     border-radius: 5px;
     color: var(--text-color);
+}
+
+/* Alert Configuration Form Styles */
+#alertConfigView .form-group {
+    margin-bottom: 25px; /* Increased bottom margin for better separation */
+}
+
+#alertConfigView .form-group label {
+    display: block;
+    margin-bottom: 8px; /* Clearer association with input */
+    font-weight: 500;
+    color: var(--text-color);
+}
+
+#alertConfigView .form-group input[type="text"],
+#alertConfigView .form-group input[type="number"],
+#alertConfigView .form-group select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    box-sizing: border-box;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-size: 0.95em;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+#alertConfigView .form-group input[type="text"]:focus,
+#alertConfigView .form-group input[type="number"]:focus,
+#alertConfigView .form-group select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 30%, transparent);
+}
+
+#alertConfigView .form-row {
+    display: flex;
+    gap: 15px; /* Space between items in a row */
+    align-items: center; /* Align items vertically */
+}
+
+#alertConfigView .form-row .form-group {
+    flex: 1; /* Allow form groups to grow */
+    margin-bottom: 0; /* Remove bottom margin when in a row */
+}
+
+/* Validation Message Placeholder Style */
+#alertConfigView .validation-error {
+    display: block; /* Ensure it takes its own line */
+    color: var(--progress-bar-red);
+    font-size: 0.85em;
+    margin-top: 5px;
+}
+
+/* Button Styling for Alert Config */
+#alertConfigView .form-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end; /* Align buttons to the right */
+    margin-top: 25px;
+}
+
+#alertConfigView #saveAlertButton,
+#alertConfigView #cancelEditAlertButton {
+    padding: 10px 18px;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.95em;
+    font-weight: 500;
+    transition: opacity 0.2s;
+}
+
+#alertConfigView #saveAlertButton {
+    background-color: var(--primary-color);
+    color: white;
+}
+body.dark-mode #alertConfigView #saveAlertButton {
+    background-color: var(--primary-color); /* Ensure consistency or adjust if needed */
+}
+
+
+#alertConfigView #saveAlertButton:hover {
+    opacity: 0.85;
+}
+
+#alertConfigView #cancelEditAlertButton {
+    background-color: var(--card-bg-color);
+    color: var(--text-color);
+    border-color: var(--border-color);
+}
+body.dark-mode #alertConfigView #cancelEditAlertButton {
+    background-color: var(--bg-color); /* Or a slightly different shade for secondary buttons */
+    color: var(--text-color);
+    border-color: var(--border-color);
+}
+
+#alertConfigView #cancelEditAlertButton:hover {
+    background-color: color-mix(in srgb, var(--card-bg-color) 90%, var(--text-color) 10%);
+}
+body.dark-mode #alertConfigView #cancelEditAlertButton:hover {
+    background-color: color-mix(in srgb, var(--bg-color) 90%, var(--text-color) 10%);
+}
+
+/* General Card Styling for AlertConfigView Sections */
+#alertConfigView .card {
+    background-color: var(--card-bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px; /* Consistent with .gauge-wrapper, .login-container */
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05); /* Consistent with .gauge-wrapper */
+    padding: 20px; /* Default padding for card content */
+    margin-bottom: 25px; /* Space between cards */
+}
+body.dark-mode #alertConfigView .card {
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2); /* Consistent with .gauge-wrapper.dark-mode */
+}
+
+#alertConfigView .card .card-header {
+    padding: 15px 20px; /* Padding for the header section */
+    margin: -20px -20px 20px -20px; /* Extend to edges of card padding, and add bottom margin */
+    border-bottom: 1px solid var(--border-color);
+}
+
+#alertConfigView .card .card-header h3 {
+    margin: 0;
+    font-size: 1.2em;
+    color: var(--text-color); /* Using text-color for less emphasis than primary-color */
+    font-weight: 500; /* Medium weight for card titles */
+}
+
+/* Adjust .table-container if it's being used as a card directly */
+/* The previous subtask added margin-top: 25px. */
+/* We'll ensure it uses the .card class's margin-bottom for consistency if it's a separate card. */
+/* For now, assuming .table-container might be wrapped by a .card or be a .card itself. */
+/* If .table-container is treated as a card, its specific padding might override .card padding. */
+/* The .table-container already has padding: 15px. .card has padding: 20px. */
+/* If a .card wraps .table-container, the table-container might not need its own top margin. */
+
+#alertConfigView .table-container {
+    /* Remove margin-top if it's inside a .card that provides margin-bottom */
+    /* margin-top: 0; */ /* This would be if .card is its direct parent */
+    /* Keep existing padding, border-radius, box-shadow if it functions as the card itself */
+    /* If it IS a card, ensure its margin-bottom is consistent or it's wrapped by something that provides it */
+     margin-top: 0; /* Assuming it will be wrapped by a div with class="card" */
+     margin-bottom: 0; /* Card wrapper will handle this */
+     padding: 0; /* Card wrapper will handle this */
+     background-color: transparent; /* Card wrapper will handle this */
+     border: none; /* Card wrapper will handle this */
+     box-shadow: none; /* Card wrapper will handle this */
+     border-radius: 0; /* Card wrapper will handle this */
+}
+#alertConfigView .card > .table-container { /* If table-container is a direct child of a card */
+    padding: 0; /* Card provides padding */
+    margin-top: 0; /* Card provides spacing */
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    border-radius: 0; /* Let card define outer radius */
+}
+#alertConfigView .card > .table-container #alertsTable {
+     margin-top:0; /* Table itself should not have extra margin if card header and padding handle it */
+}
+
+
+/* Alert Configuration Table Styles */
+/* #alertConfigView .table-container IS NOW ASSUMED TO BE WRAPPED BY A .card */
+/* Or it might get .card class itself in HTML */
+/* The margin-top: 25px from previous task is now handled by .card's margin-bottom */
+
+/* Original .table-container styles that are relevant if it's NOT wrapped by .card:
+    overflow-x: auto;
+    background-color: var(--card-bg-color);
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+   body.dark-mode & { box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+*/
+/* We need to ensure overflow-x: auto remains on the direct table wrapper if needed. */
+/* If .card wraps .table-container, then .table-container should retain overflow-x:auto */
+/* and potentially its own padding if the card's padding is not desired for the table area itself. */
+
+/* Let's simplify: Assume .form-card and .table-card are specific divs in HTML that get the .card class. */
+/* The .table-container will be inside the .card representing the table section. */
+#alertConfigView .card.form-card {
+    /* Specific styles for form card if any - currently none needed, uses generic .card */
+}
+
+#alertConfigView .card.table-card .table-container {
+    /* This is the div that needs overflow scrolling for the table */
+    overflow-x: auto;
+    padding: 0; /* Padding is handled by the .card.table-card */
+    margin-top: 0; /* Spacing is handled by .card-header and .card padding */
+    background-color: transparent; /* Card provides background */
+    border: none; /* Card provides border */
+    box-shadow: none; /* Card provides shadow */
+    border-radius: 0;
+}
+#alertConfigView .card.table-card .table-container #alertsTable{
+    margin-top:0px; /* Table itself should not have extra margin */
+/* Styling for .table-container is now part of .card.table-card setup */
+
+#alertConfigView #alertsTable {
+    width: 100%;
+    border-collapse: collapse;
+    /* margin-top is handled by .card.table-card .card-header or card padding */
+}
+
+#alertConfigView #alertsTable th,
+#alertConfigView #alertsTable td {
+    padding: 12px 15px;
+    text-align: left;
+    vertical-align: middle; /* Ensure content is vertically centered */
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.9em; /* Consistent with remoteServersTable */
+}
+
+#alertConfigView #alertsTable thead th {
+    background-color: color-mix(in srgb, var(--card-bg-color) 92%, var(--text-color) 8%);
+    color: var(--primary-color); /* Or var(--text-color) for less emphasis */
+    font-weight: 600;
+    font-size: 0.95em; /* Slightly larger for header */
+}
+body.dark-mode #alertConfigView #alertsTable thead th {
+     background-color: color-mix(in srgb, var(--card-bg-color) 85%, var(--text-color) 15%);
+     color: var(--primary-color); /* Or var(--text-color) */
+}
+
+#alertConfigView #alertsTable tbody tr:hover {
+    background-color: color-mix(in srgb, var(--card-bg-color) 95%, var(--text-color) 5%);
+}
+body.dark-mode #alertConfigView #alertsTable tbody tr:hover {
+    background-color: color-mix(in srgb, var(--card-bg-color) 90%, var(--text-color) 10%);
+}
+
+/* Styling for buttons in the "Actions" column of alertsTable */
+#alertConfigView #alertsTable .actions-cell {
+    white-space: nowrap; /* Prevent buttons from wrapping */
+    text-align: right; /* Align buttons to the right of the cell */
+}
+
+#alertConfigView #alertsTable .actions-cell button {
+    padding: 6px 10px;
+    font-size: 0.85em;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s, opacity 0.2s;
+    margin-left: 8px; /* Space between buttons */
+    border: 1px solid transparent;
+}
+#alertConfigView #alertsTable .actions-cell button:first-child {
+    margin-left: 0;
+}
+
+/* Edit button style - example, assuming .btn-edit-alert class */
+#alertConfigView #alertsTable .btn-edit-alert {
+    background-color: var(--gauge-ram-color); /* Yellowish for edit */
+    color: #fff; /* Or a dark color depending on the exact yellow */
+    border-color: var(--gauge-ram-color);
+}
+#alertConfigView #alertsTable .btn-edit-alert:hover {
+    opacity: 0.8;
+}
+body.dark-mode #alertConfigView #alertsTable .btn-edit-alert {
+    background-color: color-mix(in srgb, var(--gauge-ram-color) 90%, #000 10%);
+    border-color: color-mix(in srgb, var(--gauge-ram-color) 90%, #000 10%);
+}
+
+
+/* Delete button style - example, assuming .btn-delete-alert class */
+#alertConfigView #alertsTable .btn-delete-alert {
+    background-color: var(--progress-bar-red); /* Red for delete */
+    color: white;
+    border-color: var(--progress-bar-red);
+}
+#alertConfigView #alertsTable .btn-delete-alert:hover {
+    opacity: 0.8;
+}
+body.dark-mode #alertConfigView #alertsTable .btn-delete-alert {
+    background-color: color-mix(in srgb, var(--progress-bar-red) 90%, #000 10%);
+    border-color: color-mix(in srgb, var(--progress-bar-red) 90%, #000 10%);
+}
+
+/* Responsive adjustments for Alert Configuration View */
+@media (max-width: 768px) {
+    #alertConfigView .form-row {
+        flex-direction: column; /* Stack elements vertically */
+        gap: 0; /* Reset gap, margin will be used on form-group */
+        align-items: stretch; /* Stretch items to full width */
+    }
+
+    #alertConfigView .form-row .form-group {
+        width: 100%; /* Make form groups take full width */
+        margin-bottom: 20px; /* Add margin back (was 25px for standalone, 0 in row) */
+    }
+    #alertConfigView .form-row .form-group:last-child {
+        margin-bottom: 0; /* No margin for the last item in a stacked row if it's the end of the form section */
+    }
+
+    /* If form-buttons are also flex and need stacking: */
+    #alertConfigView .form-buttons {
+        flex-direction: column; /* Stack buttons */
+        align-items: stretch; /* Make buttons full width */
+    }
+    #alertConfigView .form-buttons button {
+        width: 100%;
+    }
+    #alertConfigView .form-buttons button:not(:last-child) {
+        margin-bottom: 10px; /* Space between stacked buttons */
+    }
+
+    /* Adjust card padding for smaller screens if necessary */
+    #alertConfigView .card {
+        padding: 15px;
+    }
+    #alertConfigView .card .card-header {
+        padding: 10px 15px;
+        margin: -15px -15px 15px -15px; /* Adjust negative margins for new padding */
+    }
+
+    /* Ensure main navigation also adapts if it becomes too wide */
+    .main-nav ul {
+        flex-wrap: wrap; /* Allow nav items to wrap if they don't fit */
+        justify-content: center; /* Center wrapped items */
+    }
+    .main-nav li {
+        margin-right: 0; /* Remove right margin if items are centered or full width */
+    }
+    .main-nav .nav-item {
+        text-align: center; /* Center text if items become full width or wrap weirdly */
+        /* Consider reducing padding on smaller screens if space is very tight */
+        /* padding: 10px 15px; */
+    }
 }
