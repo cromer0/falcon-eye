@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 import psycopg2
 import psycopg2.extras # For dictionary cursor
 import logging
+import uuid
 
 # --- Configuration ---
 load_dotenv()
@@ -376,12 +377,14 @@ def historical_data_collector():
                         # It was processed as 'local' above, so no increment to servers_processed here for this entry.
                         continue
 
+                    logger.info(f"HDC: Processing remote server. Index: '{server_index}', Configured Name: '{server_display_name}'")
                     remote_processed_successfully = False
-                    logger.info(f"Attempting to fetch historical stats for remote server: {server_display_name}")
+                    # logger.info(f"Attempting to fetch historical stats for remote server: {server_display_name}") # Original log, replaced by more specific one above or below
                     try:
                         remote_stats = get_remote_server_stats(remote_server_config, server_configs_map)
                         if remote_stats and remote_stats.get('status') == 'online':
-                            logger.info(f"Storing historical stats for {remote_stats['name']}: CPU {remote_stats['cpu_percent']}%, RAM {remote_stats['ram_percent']}%, Disk {remote_stats['disk_percent']}%")
+                            logger.info(f"HDC: Stats fetched for Index: '{server_index}', Configured Name: '{server_display_name}', Result Name: '{remote_stats.get('name')}'. Preparing to store.")
+                            # logger.info(f"Storing historical stats for {remote_stats['name']}: CPU {remote_stats['cpu_percent']}%, RAM {remote_stats['ram_percent']}%, Disk {remote_stats['disk_percent']}%") # Original log
                             store_stats(
                                 remote_stats['name'],
                                 remote_stats['cpu_percent'],
@@ -390,11 +393,13 @@ def historical_data_collector():
                             )
                             remote_processed_successfully = True
                         else:
-                            error_msg = remote_stats.get('error_message', 'Unknown error')
-                            status_msg = remote_stats.get('status', 'unknown')
-                            logger.warning(f"Not storing historical stats for {server_display_name} due to status: '{status_msg}'. Error: {error_msg}")
+                            error_msg = remote_stats.get('error_message', 'Unknown error') if remote_stats else 'Remote stats object is None'
+                            status_msg = remote_stats.get('status', 'unknown') if remote_stats else 'unknown'
+                            result_name = remote_stats.get('name', 'N/A') if remote_stats else 'N/A'
+                            logger.warning(f"HDC: Stats fetch NOT successful for Index: '{server_index}', Configured Name: '{server_display_name}', Result Name: '{result_name}', Status: '{status_msg}', Error: {error_msg}")
+                            # logger.warning(f"Not storing historical stats for {server_display_name} due to status: '{status_msg}'. Error: {error_msg}") # Original log
                     except Exception as e_remote_fetch: # Catch errors from get_remote_server_stats itself
-                        logger.error(f"Exception during get_remote_server_stats for {server_display_name}: {e_remote_fetch}", exc_info=True)
+                        logger.error(f"HDC: Exception during get_remote_server_stats for Index: '{server_index}', Configured Name: '{server_display_name}'. Error: {e_remote_fetch}", exc_info=True)
                         # remote_processed_successfully remains False
 
                     with collector_status_lock:
@@ -425,10 +430,11 @@ def historical_data_collector():
 
         # --- Run Alert Evaluation ---
         try:
-            logger.info("Initiating alert evaluation after collection cycle.")
-            evaluate_alerts() # This function is now defined above the API endpoints
+            eval_cycle_id = uuid.uuid4()
+            logger.info(f"Initiating alert evaluation (Cycle ID: {eval_cycle_id}) after collection cycle.")
+            evaluate_alerts(eval_cycle_id)
         except Exception as e_alert_eval:
-            logger.error(f"Error during evaluate_alerts call from historical_data_collector: {e_alert_eval}", exc_info=True)
+            logger.error(f"Error during evaluate_alerts call from historical_data_collector (Cycle ID: {eval_cycle_id}): {e_alert_eval}", exc_info=True)
         # --- End Alert Evaluation ---
 
         logger.info(f"Sleeping for {current_collection_interval} seconds before next collection cycle.")
@@ -994,8 +1000,8 @@ def send_alert_email(alert, target_server_name, current_value_or_avg, actual_val
         logger.error(f"Unexpected error sending email for alert '{alert['alert_name']}': {e}", exc_info=True)
 
 
-def evaluate_alerts():
-    logger.info("Starting alert evaluation cycle...")
+def evaluate_alerts(eval_cycle_id): # Added eval_cycle_id parameter
+    logger.info(f"(Cycle ID: {eval_cycle_id}) Starting alert evaluation cycle...")
     conn = None
     cursor = None
     try:
@@ -1009,33 +1015,34 @@ def evaluate_alerts():
         enabled_alerts_rows = cursor_main.fetchall()
         enabled_alerts = [dict(row) for row in enabled_alerts_rows]
 
-        logger.info(f"Found {len(enabled_alerts)} enabled alerts to evaluate.")
+        logger.info(f"(Cycle ID: {eval_cycle_id}) Found {len(enabled_alerts)} enabled alerts to evaluate.")
         if not enabled_alerts:
+            logger.info(f"(Cycle ID: {eval_cycle_id}) No enabled alerts to evaluate. Cycle finished.") # Added log for empty
             return
 
         with collector_status_lock:
             all_known_server_names = list(collector_status_info.get("configured_server_names", []))
 
         if not all_known_server_names:
-            logger.warning("No configured server names in collector_status_info for alert evaluation.")
+            logger.warning(f"(Cycle ID: {eval_cycle_id}) No configured server names in collector_status_info for alert evaluation.")
             # Fallback or error? For now, proceed, '*' alerts won't match anything.
 
         resource_column_map = {'cpu': 'cpu_percent', 'ram': 'ram_percent', 'disk': 'disk_percent'}
 
         for alert in enabled_alerts:
-            logger.info(f"Evaluating alert: '{alert['alert_name']}' (ID: {alert['id']})")
+            logger.info(f"(Cycle ID: {eval_cycle_id}) Evaluating alert: '{alert['alert_name']}' (ID: {alert['id']})")
             resource_column = resource_column_map.get(alert['resource_type'])
             if not resource_column:
-                logger.warning(f"Invalid resource_type '{alert['resource_type']}' for alert ID {alert['id']}. Skipping.")
+                logger.warning(f"(Cycle ID: {eval_cycle_id}) Invalid resource_type '{alert['resource_type']}' for alert ID {alert['id']}. Skipping.")
                 continue
 
             target_servers = all_known_server_names if alert['server_name'] == '*' else [alert['server_name']]
             if not target_servers:
-                logger.debug(f"No target servers for alert ID {alert['id']} (Server pattern: {alert['server_name']}).")
+                logger.debug(f"(Cycle ID: {eval_cycle_id}) No target servers for alert ID {alert['id']} (Server pattern: {alert['server_name']}). Skipping.")
                 continue
 
             for target_server in target_servers:
-                logger.debug(f"Checking alert ID {alert['id']} for server: '{target_server}'")
+                logger.debug(f"(Cycle ID: {eval_cycle_id}) Checking alert ID {alert['id']} for server: '{target_server}'")
 
                 if alert['last_triggered_at']:
                     last_triggered_dt = alert['last_triggered_at']
@@ -1047,32 +1054,32 @@ def evaluate_alerts():
                             except:
                                 try: last_triggered_dt = datetime.datetime.strptime(last_triggered_dt, '%Y-%m-%d %H:%M:%S.%f')
                                 except ValueError:
-                                    logger.error(f"Unparseable last_triggered_at '{last_triggered_dt}' for alert {alert['id']}. Skipping cooldown.", exc_info=True)
+                                    logger.error(f"(Cycle ID: {eval_cycle_id}) Unparseable last_triggered_at '{last_triggered_dt}' for alert {alert['id']}. Skipping cooldown.", exc_info=True)
                                     last_triggered_dt = None
 
                     current_time_for_cooldown = datetime.datetime.now(getattr(last_triggered_dt, 'tzinfo', None))
                     if last_triggered_dt and (current_time_for_cooldown - last_triggered_dt).total_seconds() / 60 < ALERT_COOLDOWN_MINUTES:
-                        logger.info(f"Alert ID {alert['id']} for '{target_server}' in cooldown. Last: {alert['last_triggered_at']}. Skipping.")
+                        logger.info(f"(Cycle ID: {eval_cycle_id}) Alert ID {alert['id']} for '{target_server}' in cooldown. Last: {alert['last_triggered_at']}. Skipping.")
                         continue
 
                 stats_values = get_stats_for_alert_evaluation(cursor_main, target_server, resource_column, alert['time_window_minutes'])
-                if stats_values is None:
-                    logger.warning(f"No stats for alert ID {alert['id']} on '{target_server}'. Skipping.")
+                if stats_values is None: # Error already logged in helper
+                    logger.warning(f"(Cycle ID: {eval_cycle_id}) Could not retrieve stats for alert ID {alert['id']} on '{target_server}'. Skipping evaluation for this server.")
                     continue
 
                 expected_points = (alert['time_window_minutes'] * 60) / current_collection_interval
                 min_points = max(1, int(expected_points * MINIMUM_DATA_POINTS_FOR_ALERT_PERCENTAGE))
 
                 if len(stats_values) < min_points:
-                    logger.info(f"Not enough data for alert ID {alert['id']} on '{target_server}'. Have {len(stats_values)}/{min_points}. Skipping.")
+                    logger.info(f"(Cycle ID: {eval_cycle_id}) Not enough data for alert ID {alert['id']} on '{target_server}'. Have {len(stats_values)}/{min_points} (expected approx {expected_points:.1f}). Skipping.")
                     continue
 
                 condition_met = all(val > alert['threshold_percentage'] for val in stats_values)
                 latest_val = stats_values[-1] if stats_values else 0
 
                 if condition_met:
-                    logger.warning(f"ALERT TRIGGERED: '{alert['alert_name']}' (ID: {alert['id']}) for '{target_server}'. Values (last {len(stats_values)}): {stats_values}")
-                    send_alert_email(alert, target_server, latest_val, stats_values)
+                    logger.warning(f"(Cycle ID: {eval_cycle_id}) ALERT TRIGGERED: '{alert['alert_name']}' (ID: {alert['id']}) for '{target_server}'. Values (last {len(stats_values)}): {stats_values}")
+                    send_alert_email(alert, target_server, latest_val, stats_values) # Email does not need cycle_id internally
 
                     update_ts_query = "UPDATE alerts SET last_triggered_at = %s WHERE id = %s"
                     now_ts = datetime.datetime.now()
@@ -1083,21 +1090,21 @@ def evaluate_alerts():
                         params_update = (now_ts.strftime('%Y-%m-%d %H:%M:%S.%f') if DATABASE_TYPE == 'sqlite' else now_ts, alert['id'])
                         temp_cursor_update.execute(update_ts_query, params_update)
                         temp_conn_update.commit()
-                        logger.info(f"Updated last_triggered_at for alert ID {alert['id']} to {now_ts}")
+                        logger.info(f"(Cycle ID: {eval_cycle_id}) Updated last_triggered_at for alert ID {alert['id']} to {now_ts}")
                     except Exception as e_upd:
-                        logger.error(f"Failed to update last_triggered_at for alert {alert['id']}: {e_upd}", exc_info=True)
+                        logger.error(f"(Cycle ID: {eval_cycle_id}) Failed to update last_triggered_at for alert {alert['id']}: {e_upd}", exc_info=True)
                         if temp_conn_update: temp_conn_update.rollback()
                     finally:
                         if temp_cursor_update: temp_cursor_update.close()
                         if temp_conn_update: temp_conn_update.close()
                 else:
-                    logger.info(f"Alert ID {alert['id']} NOT MET for '{target_server}'. Latest: {latest_val} (Threshold: {alert['threshold_percentage']}%).")
+                    logger.info(f"(Cycle ID: {eval_cycle_id}) Alert ID {alert['id']} NOT MET for '{target_server}'. Latest: {latest_val} (Threshold: {alert['threshold_percentage']}%).")
     except Exception as e:
-        logger.error(f"Alert evaluation cycle error: {e}", exc_info=True)
+        logger.error(f"(Cycle ID: {eval_cycle_id}) Alert evaluation cycle error: {e}", exc_info=True)
     finally:
         if cursor_main: cursor_main.close()
         if conn: conn.close()
-        logger.info("Alert evaluation cycle finished.")
+        logger.info(f"(Cycle ID: {eval_cycle_id}) Alert evaluation cycle finished.")
 
 # --- Alerting API Endpoints ---
 
