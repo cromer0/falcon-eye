@@ -105,12 +105,36 @@ To build and run the application using Docker:
 
 ## Running the Application (Local Development without Docker)
 
-1.  **Ensure your environment variables are set** in the `.env` file as per the "Setup and Configuration" section.
-2.  **Start the Flask development server (not recommended for production):**
+For local development or testing outside of Docker, you have a couple of options. First, ensure your environment variables are set in the `.env` file as per the "Setup and Configuration (for Local Development without Docker)" section.
+
+### Method 1: Temporarily modify `app.py`
+
+1.  Open `app.py`.
+2.  Add the following lines at the very end of the file:
+    ```python
+    if __name__ == '__main__':
+        app.run(debug=True, host='0.0.0.0', port=5000)
+    ```
+3.  Run the application directly:
     ```bash
     python app.py
     ```
-    This will use Flask's built-in development server. The application will typically be accessible at `http://localhost:5000` (this was the default for `app.py` before Dockerization, but it's not used by the Docker setup). For production, use Docker or a dedicated WSGI server.
+    The application will be accessible at `http://localhost:5000`.
+
+    **Important:** If you use this method, remember to remove or comment out these lines before building your Docker image for production, as the Docker container uses Waitress to serve the application on port 8080.
+
+### Method 2: Use the Flask CLI
+
+1.  Ensure Flask is installed in your local environment (it's in `requirements.txt`).
+2.  Set the necessary environment variables and run the Flask development server:
+    ```bash
+    export FLASK_APP=app.py
+    export FLASK_ENV=development # Enables debug mode
+    flask run --host=0.0.0.0 --port=5000
+    ```
+    (For Windows, use `set` instead of `export`: `set FLASK_APP=app.py` and `set FLASK_ENV=development`)
+
+    The application will be accessible at `http://localhost:5000`.
 
 ## Deployment
 
