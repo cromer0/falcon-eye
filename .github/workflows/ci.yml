@@ -48,6 +48,9 @@ jobs:
     - name: Install ESLint
       run: npm install -g eslint
 
+    - name: Install Globals
+      run: npm install -g globals
+
     - name: Lint JavaScript with ESLint
       run: eslint "static/js/**/*.js"
 
