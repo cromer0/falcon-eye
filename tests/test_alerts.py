@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import patch, MagicMock, ANY
+import sqlite3
 import sys
 import os
 import json

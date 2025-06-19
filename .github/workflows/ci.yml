@@ -37,15 +37,3 @@ jobs:
     - name: Run tests
       run: |
         python -m unittest discover -s tests
-
-    - name: Auto format with Black and commit changes
-      if: success() || failure() # Run this step even if previous steps failed, to format code before committing
-      run: |
-        black .
-      # Use a specific action to commit changes
-    - name: Commit changes
-      if: success() || failure() # Also run this if black made changes
-      uses: stefanzweifel/git-auto-commit-action@v5
-      with:
-        commit_message: "style: Auto-format Python code with Black"
-        branch: ${{ github.head_ref || github.ref_name }} # Use the current branch
