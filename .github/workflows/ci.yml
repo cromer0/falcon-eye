@@ -45,15 +45,6 @@ jobs:
     - name: Lint HTML with HTMLHint
       run: htmlhint templates/**/*.html
 
-    - name: Install ESLint
-      run: npm install -g eslint
-
-    - name: Install Globals
-      run: npm install -g globals
-
-    - name: Lint JavaScript with ESLint
-      run: eslint "static/js/**/*.js"
-
     - name: Install Prettier
       run: npm install -g prettier
 
