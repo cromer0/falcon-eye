@@ -37,3 +37,38 @@ jobs:
     - name: Run tests
       run: |
         python -m unittest discover -s tests
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18' # Or a more recent LTS version
+
+    - name: Install HTMLHint
+      run: npm install -g htmlhint
+
+    - name: Create .htmlhintrc # Add this step to ensure .htmlhintrc exists for the CI run
+      run: |
+        echo '{' > .htmlhintrc
+        echo '  "tagname-lowercase": true,' >> .htmlhintrc
+        echo '  "attr-lowercase": true,' >> .htmlhintrc
+        echo '  "attr-value-double-quotes": true,' >> .htmlhintrc
+        echo '  "doctype-first": true,' >> .htmlhintrc
+        echo '  "tag-pair": true,' >> .htmlhintrc
+        echo '  "spec-char-escape": true,' >> .htmlhintrc
+        echo '  "id-unique": true,' >> .htmlhintrc
+        echo '  "src-not-empty": true,' >> .htmlhintrc
+        echo '  "attr-no-duplication": true,' >> .htmlhintrc
+        echo '  "title-require": false' >> .htmlhintrc # Set to false as login.html might not have it
+        echo '}' >> .htmlhintrc
+
+    - name: Lint HTML with HTMLHint
+      run: htmlhint templates/**/*.html static/**/*.html
+
+    - name: Install ESLint
+      run: npm install -g eslint
+
+    # The .eslintrc.js should be created in the next plan step and committed to the repo.
+    # For now, this step assumes .eslintrc.js will exist.
+    # Corrected ESLint command:
+    - name: Lint JavaScript with ESLint
+      run: eslint --config .eslintrc.js "static/js/**/*.js"

@@ -15,7 +15,7 @@ FalconEye is a web application to monitor server performance metrics for local a
 
 ## Tech Stack
 
-*   **Backend**: Python (Flask), Waitress (WSGI Server)
+*   **Backend**: Python (Flask)
 *   **Frontend**: HTML, CSS, JavaScript
 *   **Libraries**:
     *   `psutil`: For fetching local system metrics.
@@ -23,9 +23,7 @@ FalconEye is a web application to monitor server performance metrics for local a
     *   `Chart.js`: For rendering charts.
     *   `dotenv`: For managing environment variables.
 
-## Setup and Configuration (for Local Development without Docker)
-
-These instructions are for running the application directly on your machine, for development or if you are not using Docker.
+## Setup and Configuration
 
 1.  **Clone the repository:**
     ```bash
@@ -76,6 +74,7 @@ These instructions are for running the application directly on your machine, for
         *   `ALERT_COOLDOWN_MINUTES`: Minimum time in minutes before another alert notification is sent for the same rule if the condition persists (default: 30).
         *   `MINIMUM_DATA_POINTS_FOR_ALERT_PERCENTAGE`: The minimum percentage of expected data points that must be present within an alert's time window for it to be evaluated (default: 0.8, i.e., 80%). This helps prevent false positives if data collection was temporarily gappy.
 
+
 5.  **Database Initialization:**
     *   The application will attempt to initialize the database (create tables, including the `alerts` table) on the first run based on the `DATABASE_TYPE` specified in your `.env` file.
     *   For SQLite, the database file will be created in the `data/` directory (e.g., `data/sys_stats.db`). Ensure the `data/` directory is writable by the application.
@@ -86,62 +85,20 @@ These instructions are for running the application directly on your machine, for
     *   To use your own logo, replace this file with your desired image (e.g., an SVG or PNG file).
     *   If you use a different filename or path, update the references in `templates/index.html` and `templates/login.html`.
 
-## Running with Docker (Recommended)
+## Running the Application
 
-To build and run the application using Docker:
-
-1.  **Build the Docker image:**
-    Ensure your `.env` file is configured as described in the "Setup and Configuration" section. The `Dockerfile` copies this `.env` file into the image.
-    ```bash
-    docker build -t falcon-eye .
-    ```
-
-2.  **Run the Docker container:**
-    ```bash
-    docker run -p 8080:8080 falcon-eye
-    ```
-    The application will be accessible at [http://localhost:8080](http://localhost:8080).
-    The `PORT` environment variable inside the Docker container is set to `8080` by the `Dockerfile`.
-
-## Running the Application (Local Development without Docker)
-
-To run the application locally for development or testing outside of Docker, you can use an environment variable to enable the Flask development server. First, ensure your general environment variables (like database connections, API keys, etc.) are set in the `.env` file as per the "Setup and Configuration (for Local Development without Docker)" section.
-
-1.  **Set the environment variable and run `app.py`:**
-    Open your terminal in the project's root directory and run:
-
-    ```bash
-    export FALCON_EYE_ENV=development
-    python app.py
-    ```
-    (For Windows Command Prompt, use `set FALCON_EYE_ENV=development` and then `python app.py`. For PowerShell, use `$env:FALCON_EYE_ENV="development"` and then `python app.py`.)
-
-    The application will then start in development mode, typically accessible at `http://localhost:5000`. The console will show messages from the Flask development server.
-
-2.  **Using a `.env` file (Recommended for convenience):**
-    You can add the `FALCON_EYE_ENV` variable directly to your existing `.env` file in the root of the project (this file is typically ignored by Git if `.env` is in `.gitignore`). Add the following line to your `.env` file:
-    ```
-    FALCON_EYE_ENV=development
-    ```
-    With this line in your `.env` file, you can simply run:
+1.  **Ensure your environment variables are set** in the `.env` file.
+2.  **Start the Flask development server:**
     ```bash
     python app.py
     ```
-    The application will automatically pick up the `FALCON_EYE_ENV` variable from the `.env` file because `python-dotenv` is used at the beginning of `app.py` to load all variables from this file.
-
-**Note on Production Mode:**
-If `FALCON_EYE_ENV` is not set or is set to any value other than `development`, running `python app.py` directly will **not** start a web server. In this scenario, the `app.py` script prepares the application instance but relies on a production WSGI server (like Waitress, which is used in the `Dockerfile`) to actually serve the application. This is the intended behavior for production deployments.
-
-## Deployment
-
-The application is configured to be deployed using Docker.
-The `Dockerfile` sets up a Python 3.9 environment, installs dependencies, and uses **Waitress** as the production WSGI server to serve the Flask application on port 8080 within the container.
+3.  Open your web browser and navigate to `http://localhost:5000` (or the host/port configured if you changed it).
 
 ## Development Notes
 
-*   **SSH Key Paths**: When using SSH keys (`REMOTE_SERVER_X_KEY_PATH`), and not running in Docker, ensure the path is correct from the perspective of the machine running the Flask application. Use absolute paths or paths relative to the application's root directory if necessary. `~` for home directory expansion is supported. If running in Docker, you would need to ensure the keys are accessible inside the container (e.g., by mounting them as volumes), and the paths in `.env` reflect their location within the container.
+*   **SSH Key Paths**: When using SSH keys (`REMOTE_SERVER_X_KEY_PATH`), ensure the path is correct from the perspective of the machine running the Flask application. Use absolute paths or paths relative to the application's root directory if necessary. `~` for home directory expansion is supported.
 *   **Jump Servers**: If a target server is behind a jump server, ensure the jump server configuration (`REMOTE_SERVER_X_JUMP_SERVER` pointing to another server's index) and its own authentication details are correctly set up.
-*   **Firewalls**: Ensure that any firewalls (on the machine running the app, on the remote servers, or network firewalls) allow SSH connections on the specified ports. When using Docker, also ensure the host machine's firewall allows connections on the mapped port (e.g., 8080).
+*   **Firewalls**: Ensure that any firewalls (on the machine running the app, on the remote servers, or network firewalls) allow SSH connections on the specified ports.
 
 ## Alerting System
 
@@ -189,3 +146,80 @@ Contributions are welcome! Please feel free to submit a pull request or open an 
 ## License
 
 This project is licensed under the MIT License - see the `LICENSE` file for details (if one is added).
+
+## Code Style and Linting
+
+This project uses specific tools to maintain code quality and consistency.
+
+### Python Formatting
+
+We use **Black** for uncompromising Python code formatting.
+
+To format your Python code, run:
+```bash
+pip install black  # If not already installed via requirements.txt
+black .
+```
+The CI workflow will check if the code is formatted with Black.
+
+### Python Linting
+
+We use **Flake8** for linting Python code to catch common errors and style issues.
+
+To lint your Python code, run:
+```bash
+pip install flake8  # If not already installed via requirements.txt
+flake8 .
+```
+The CI workflow will run Flake8.
+
+### HTML Linting
+
+We use **HTMLHint** to lint HTML files.
+
+To lint your HTML files:
+1. Install HTMLHint globally (requires Node.js and npm):
+   ```bash
+   npm install -g htmlhint
+   ```
+2. Create a `.htmlhintrc` file in the project root with your desired rules. A basic example:
+   ```json
+   {
+     "tagname-lowercase": true,
+     "attr-lowercase": true,
+     "attr-value-double-quotes": true,
+     "doctype-first": true,
+     "tag-pair": true,
+     "spec-char-escape": true,
+     "id-unique": true,
+     "src-not-empty": true,
+     "attr-no-duplication": true,
+     "title-require": true
+   }
+   ```
+3. Run HTMLHint:
+   ```bash
+   htmlhint "templates/**/*.html" "static/**/*.html"
+   ```
+The CI workflow will also run HTMLHint.
+
+### JavaScript Linting
+
+We use **ESLint** to lint JavaScript files.
+
+To lint your JavaScript files:
+1. Install ESLint globally (requires Node.js and npm):
+   ```bash
+   npm install -g eslint
+   ```
+2. Create an ESLint configuration file (e.g., `.eslintrc.js`) in the project root. A basic example configuration is provided in the repository (`.eslintrc.js`).
+3. Run ESLint:
+   ```bash
+   eslint "static/**/*.js"
+   ```
+   You might need to adjust the command based on your file structure and if you have JS files elsewhere.
+The CI workflow will also run ESLint.
+
+---
+
+Ensure you have Node.js and npm installed to use HTMLHint and ESLint.
