@@ -1589,15 +1589,42 @@ if __name__ == '__main__':
             collector_status_info["configured_server_names"] = ['local']
 
     # Only start the collector thread if not in debug mode OR if this is the main Werkzeug process
-    if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+    # AND if we are not explicitly running in development mode via FALCON_EYE_ENV
+    # This is to prevent the collector thread from starting when `flask run` is used,
+    # as it might interfere or run twice if FALCON_EYE_ENV is also set to development.
+    # The `flask run` command itself handles the Werkzeug reloader.
+    run_mode_for_thread = os.environ.get('FALCON_EYE_ENV', 'production').lower()
+    if run_mode_for_thread != 'development' and (not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true"):
         collector_thread = threading.Thread(target=historical_data_collector, name="HistoricalDataCollectorThread", daemon=True)
         collector_thread.start()
         logger.info("Historical data collector thread started in the appropriate process.")
     elif app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
         logger.info("Flask Debug mode is on and this is the reloader process. Collector thread will not start here.")
+    elif run_mode_for_thread == 'development':
+        logger.info("FALCON_EYE_ENV is 'development', collector thread will be started by the main dev server process if app.run is called.")
 
-    # Note: Alert evaluation is called within the historical_data_collector loop.
-    # No separate alert evaluation thread is started here to keep it sequential after data collection.
 
-    logger.info("Starting Flask development server. Note: Flask's internal logs may also be shown if DEBUG is true.")
-    app.run(debug=False, host='0.0.0.0', port=5000)
+    # Check for an environment variable to determine run mode
+    run_mode = os.environ.get('FALCON_EYE_ENV', 'production').lower()
+
+    if run_mode == 'development':
+        logger.info("Starting Flask development server (FALCON_EYE_ENV=development)...")
+        # Start collector thread here if in development and it's the main process
+        if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+            if not 'collector_thread' in locals() or not collector_thread.is_alive(): # Start if not already started by above block
+                collector_thread = threading.Thread(target=historical_data_collector, name="HistoricalDataCollectorThread", daemon=True)
+                collector_thread.start()
+                logger.info("Historical data collector thread started for development mode.")
+        app.run(debug=True, host='0.0.0.0', port=5000)
+    else:
+        # This part will effectively not be reached if running via `waitress-serve`
+        # as specified in the Dockerfile's CMD.
+        # However, if someone runs `python app.py` directly without the env var,
+        # it implies they might want Waitress if it's installed.
+        # For clarity and to avoid confusion, we'll log and do nothing here,
+        # relying on the Docker CMD for production via Waitress.
+        # If Waitress needs to be callable directly via `python app.py` in prod mode,
+        # then the waitress.serve() call would go here.
+        logger.info(f"Application ready to be served by a production WSGI server (e.g., Waitress). FALCON_EYE_ENV='{run_mode}'.")
+        logger.info("If running with Docker, Waitress is already configured in the Dockerfile.")
+        logger.info("If running 'python app.py' directly in a production-like environment, ensure Waitress or another WSGI server is used to serve 'app:app'.")

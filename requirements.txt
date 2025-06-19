@@ -1,4 +1,5 @@
 Flask
+waitress
 psutil
 python-dotenv
 paramiko
