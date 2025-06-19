@@ -1,210 +1,312 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FalconEye Server Monitor</title>
-    <link rel="icon" href="{{ url_for('static', filename='images/logo.png') }}" type="image/png">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link
+      rel="icon"
+      href="{{ url_for('static', filename='images/logo.png') }}"
+      type="image/png"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/style.css') }}"
+    />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
-</head>
-<body class="light-mode">
-
+  </head>
+  <body class="light-mode">
     <header>
-        <div class="header-content">
-            <img src="{{ url_for('static', filename='images/logo.png') }}" alt="FalconEye Logo" id="headerLogo">
-            <h1>FalconEye Server Monitor</h1>
-        </div>
-        <div class="header-actions">
-            <a href="{{ url_for('logout') }}" style="display: inline;">
-                <button type="submit" id="logoutButton">Logout</button>
-            </a>
-            <button id="darkModeToggle">☾</button>
-        </div>
+      <div class="header-content">
+        <img
+          src="{{ url_for('static', filename='images/logo.png') }}"
+          alt="FalconEye Logo"
+          id="headerLogo"
+        />
+        <h1>FalconEye Server Monitor</h1>
+      </div>
+      <div class="header-actions">
+        <a href="{{ url_for('logout') }}" style="display: inline">
+          <button type="submit" id="logoutButton">Logout</button>
+        </a>
+        <button id="darkModeToggle">☾</button>
+      </div>
     </header>
 
     <nav class="main-nav">
-        <ul>
-            <li><a href="#" id="navServerList" class="nav-item active" data-view="serverListView">Server List</a></li>
-            <li><a href="#" id="navAlertConfig" class="nav-item" data-view="alertConfigView">Alert Configuration</a></li>
-        </ul>
+      <ul>
+        <li>
+          <a
+            href="#"
+            id="navServerList"
+            class="nav-item active"
+            data-view="serverListView"
+            >Server List</a
+          >
+        </li>
+        <li>
+          <a
+            href="#"
+            id="navAlertConfig"
+            class="nav-item"
+            data-view="alertConfigView"
+            >Alert Configuration</a
+          >
+        </li>
+      </ul>
     </nav>
 
     <main>
-        <div id="userFeedback" class="alert alert-dismissible fade show" role="alert" style="display:none; position: fixed; top: 80px; left: 50%; transform: translateX(-50%); z-index: 1050; width: auto; max-width: 80%;">
-            <span id="userFeedbackMessage"></span>
-            <button type="button" class="close-button" onclick="hideFeedback()" aria-label="Close">&times;</button>
+      <div
+        id="userFeedback"
+        class="alert alert-dismissible fade show"
+        role="alert"
+        style="
+          display: none;
+          position: fixed;
+          top: 80px;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 1050;
+          width: auto;
+          max-width: 80%;
+        "
+      >
+        <span id="userFeedbackMessage"></span>
+        <button
+          type="button"
+          class="close-button"
+          onclick="hideFeedback()"
+          aria-label="Close"
+        >
+          &times;
+        </button>
+      </div>
+
+      <!-- Server List View -->
+      <div id="serverListView" class="view active">
+        <h2>Monitored Servers</h2>
+        <div class="table-container">
+          <table id="remoteServersTable">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Host</th>
+                <th>Status</th>
+                <th>CPU %</th>
+                <th>RAM %</th>
+                <th>Disk %</th>
+                <!-- Other summary columns if desired, or keep it minimal -->
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Server list will be populated by JavaScript -->
+            </tbody>
+          </table>
+        </div>
+        <div class="current-timestamp">
+          Server list last updated:
+          <span id="serverListLastUpdated">Never</span>
+        </div>
+      </div>
+
+      <!-- Server Detail View (Initially Hidden) -->
+      <div id="serverDetailView" class="view">
+        <button id="backToServerListButton">← Back to Server List</button>
+        <h2 id="selectedServerName">Server Details</h2>
+
+        <div class="detail-tabs">
+          <button class="detail-tab-button active" data-tab="detail-current">
+            Current Data
+          </button>
+          <button class="detail-tab-button" data-tab="detail-historical">
+            Historical Data
+          </button>
         </div>
 
-        <!-- Server List View -->
-        <div id="serverListView" class="view active">
-            <h2>Monitored Servers</h2>
-            <div class="table-container">
-                <table id="remoteServersTable">
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Host</th>
-                            <th>Status</th>
-                            <th>CPU %</th>
-                            <th>RAM %</th>
-                            <th>Disk %</th>
-                            <!-- Other summary columns if desired, or keep it minimal -->
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- Server list will be populated by JavaScript -->
-                    </tbody>
-                </table>
+        <div id="detail-current" class="detail-tab-content active">
+          <h3>Current System Usage</h3>
+          <div class="gauges-container">
+            <div class="gauge-wrapper">
+              <h4>CPU Usage</h4>
+              <div class="gauge" id="detailCpuGaugeContainer">
+                <canvas id="detailCpuGauge"></canvas>
+                <div class="gauge-value" id="detailCpuValue">--%</div>
+              </div>
+              <div class="gauge-detail" id="detailCpuInfo">
+                Cores: --, Model: --
+              </div>
             </div>
-            <div class="current-timestamp">Server list last updated: <span id="serverListLastUpdated">Never</span></div>
+            <div class="gauge-wrapper">
+              <h4>RAM Usage</h4>
+              <div class="gauge" id="detailRamGaugeContainer">
+                <canvas id="detailRamGauge"></canvas>
+                <div class="gauge-value" id="detailRamValue">--%</div>
+              </div>
+              <div class="gauge-detail" id="detailRamInfo">-- GB / -- GB</div>
+            </div>
+            <div class="gauge-wrapper">
+              <h4>Disk Usage (<span id="detailDiskPath">/</span>)</h4>
+              <div class="gauge" id="detailDiskGaugeContainer">
+                <canvas id="detailDiskGauge"></canvas>
+                <div class="gauge-value" id="detailDiskValue">--%</div>
+              </div>
+              <div class="gauge-detail" id="detailDiskInfo">-- GB / -- GB</div>
+            </div>
+          </div>
+          <div class="current-timestamp">
+            Last updated: <span id="detailLastUpdated">Never</span>
+          </div>
         </div>
 
-        <!-- Server Detail View (Initially Hidden) -->
-        <div id="serverDetailView" class="view">
-            <button id="backToServerListButton">← Back to Server List</button>
-            <h2 id="selectedServerName">Server Details</h2>
-
-            <div class="detail-tabs">
-                <button class="detail-tab-button active" data-tab="detail-current">Current Data</button>
-                <button class="detail-tab-button" data-tab="detail-historical">Historical Data</button>
+        <div id="detail-historical" class="detail-tab-content">
+          <h3>Historical System Usage</h3>
+          <div id="detailHistoricalChartContainer">
+            <!-- Historical charts will be injected here or a message -->
+            <p id="historicalDataMessage">Loading historical data...</p>
+            <div class="chart-container" style="display: none">
+              <canvas id="detailHistoricalCpuChart"></canvas>
             </div>
-
-            <div id="detail-current" class="detail-tab-content active">
-                <h3>Current System Usage</h3>
-                <div class="gauges-container">
-                    <div class="gauge-wrapper">
-                        <h4>CPU Usage</h4>
-                        <div class="gauge" id="detailCpuGaugeContainer">
-                            <canvas id="detailCpuGauge"></canvas>
-                            <div class="gauge-value" id="detailCpuValue">--%</div>
-                        </div>
-                        <div class="gauge-detail" id="detailCpuInfo">Cores: --, Model: --</div>
-                    </div>
-                    <div class="gauge-wrapper">
-                        <h4>RAM Usage</h4>
-                        <div class="gauge" id="detailRamGaugeContainer">
-                            <canvas id="detailRamGauge"></canvas>
-                            <div class="gauge-value" id="detailRamValue">--%</div>
-                        </div>
-                        <div class="gauge-detail" id="detailRamInfo">-- GB / -- GB</div>
-                    </div>
-                    <div class="gauge-wrapper">
-                        <h4>Disk Usage (<span id="detailDiskPath">/</span>)</h4>
-                        <div class="gauge" id="detailDiskGaugeContainer">
-                            <canvas id="detailDiskGauge"></canvas>
-                            <div class="gauge-value" id="detailDiskValue">--%</div>
-                        </div>
-                        <div class="gauge-detail" id="detailDiskInfo">-- GB / -- GB</div>
-                    </div>
-                </div>
-                <div class="current-timestamp">Last updated: <span id="detailLastUpdated">Never</span></div>
+            <div class="chart-container" style="display: none">
+              <canvas id="detailHistoricalRamChart"></canvas>
             </div>
-
-            <div id="detail-historical" class="detail-tab-content">
-                <h3>Historical System Usage</h3>
-                <div id="detailHistoricalChartContainer">
-                    <!-- Historical charts will be injected here or a message -->
-                    <p id="historicalDataMessage">Loading historical data...</p>
-                    <div class="chart-container" style="display:none;"> <canvas id="detailHistoricalCpuChart"></canvas> </div>
-                    <div class="chart-container" style="display:none;"> <canvas id="detailHistoricalRamChart"></canvas> </div>
-                    <div class="chart-container" style="display:none;"> <canvas id="detailHistoricalDiskChart"></canvas> </div>
-                </div>
+            <div class="chart-container" style="display: none">
+              <canvas id="detailHistoricalDiskChart"></canvas>
             </div>
+          </div>
         </div>
+      </div>
     </main>
 
     <!-- Alert Configuration View (Initially Hidden) -->
     <div id="alertConfigView" class="view">
-        <h2>Alert Configuration</h2>
-        <div class="card mb-3 form-card">
-            <div class="card-header">
-                <h3 id="alertFormTitle">Create New Alert</h3>
-            </div>
-            <div class="card-body">
-                <form id="alertConfigForm">
-                    <input type="hidden" id="alert_id" name="alert_id">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="alert_name">Alert Name</label>
-                            <input type="text" id="alert_name" name="alert_name" required placeholder="e.g., High CPU on Server X">
-                        </div>
-                        <div class="form-group">
-                            <label for="server_name">Server Name</label>
-                            <select id="server_name" name="server_name" required>
-                                {/* <!-- Options will be populated by JavaScript --> */}
-                            </select>
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="resource_type">Resource Type</label>
-                            <select id="resource_type" name="resource_type" required>
-                                <option value="" disabled selected>Select Resource</option>
-                                <option value="cpu">CPU</option>
-                                <option value="ram">RAM</option>
-                                <option value="disk">Disk</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="threshold_percentage">Threshold (%)</label>
-                            <input type="number" id="threshold_percentage" name="threshold_percentage" min="0" max="100" step="0.1" required placeholder="e.g., 80.5">
-                        </div>
-                        <div class="form-group">
-                            <label for="time_window_minutes">Time Window (minutes)</label>
-                            <input type="number" id="time_window_minutes" name="time_window_minutes" min="1" required placeholder="e.g., 5">
-                        </div>
-                    </div>
-                    <div class="form-group full-width">
-                        <label for="emails">Notification Emails (comma-separated)</label>
-                        <input type="text" id="emails" name="emails" required placeholder="e.g., admin@example.com, ops@example.com">
-                    </div>
-                    <div class="form-actions">
-                        <button type="submit" id="saveAlertButton" class="button-primary">Save Alert</button>
-                        <button type="button" id="cancelEditAlertButton" class="button-secondary" style="display: none;">Cancel Edit</button>
-                    </div>
-                </form>
-            </div>
+      <h2>Alert Configuration</h2>
+      <div class="card mb-3 form-card">
+        <div class="card-header">
+          <h3 id="alertFormTitle">Create New Alert</h3>
         </div>
+        <div class="card-body">
+          <form id="alertConfigForm">
+            <input type="hidden" id="alert_id" name="alert_id" />
+            <div class="form-row">
+              <div class="form-group">
+                <label for="alert_name">Alert Name</label>
+                <input
+                  type="text"
+                  id="alert_name"
+                  name="alert_name"
+                  required
+                  placeholder="e.g., High CPU on Server X"
+                />
+              </div>
+              <div class="form-group">
+                <label for="server_name">Server Name</label>
+                <select id="server_name" name="server_name" required>
+                  {/*
+                  <!-- Options will be populated by JavaScript -->
+                  */}
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="resource_type">Resource Type</label>
+                <select id="resource_type" name="resource_type" required>
+                  <option value="" disabled selected>Select Resource</option>
+                  <option value="cpu">CPU</option>
+                  <option value="ram">RAM</option>
+                  <option value="disk">Disk</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="threshold_percentage">Threshold (%)</label>
+                <input
+                  type="number"
+                  id="threshold_percentage"
+                  name="threshold_percentage"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  required
+                  placeholder="e.g., 80.5"
+                />
+              </div>
+              <div class="form-group">
+                <label for="time_window_minutes">Time Window (minutes)</label>
+                <input
+                  type="number"
+                  id="time_window_minutes"
+                  name="time_window_minutes"
+                  min="1"
+                  required
+                  placeholder="e.g., 5"
+                />
+              </div>
+            </div>
+            <div class="form-group full-width">
+              <label for="emails">Notification Emails (comma-separated)</label>
+              <input
+                type="text"
+                id="emails"
+                name="emails"
+                required
+                placeholder="e.g., admin@example.com, ops@example.com"
+              />
+            </div>
+            <div class="form-actions">
+              <button type="submit" id="saveAlertButton" class="button-primary">
+                Save Alert
+              </button>
+              <button
+                type="button"
+                id="cancelEditAlertButton"
+                class="button-secondary"
+                style="display: none"
+              >
+                Cancel Edit
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
 
-        <div class="card table-card">
-            <div class="card-header">
-                <h3>Configured Alerts</h3>
-            </div>
-            <!-- Removed card-body wrapper -->
-            <div class="table-container">
-                <table id="alertsTable">
-                    <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Server</th>
-                                <th>Resource</th>
-                                <th>Threshold</th>
-                                <th>Window</th>
-                                <th>Emails</th>
-                                <th>Status</th>
-                                <th>Last Triggered</th>
-                                <th>Created At</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="alertsTableBody">
-                            <!-- Alert rows will be populated by JavaScript -->
-                        </tbody>
-                    </table>
-                </div>
-            <!-- Removed card-body wrapper -->
+      <div class="card table-card">
+        <div class="card-header">
+          <h3>Configured Alerts</h3>
         </div>
+        <!-- Removed card-body wrapper -->
+        <div class="table-container">
+          <table id="alertsTable">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Server</th>
+                <th>Resource</th>
+                <th>Threshold</th>
+                <th>Window</th>
+                <th>Emails</th>
+                <th>Status</th>
+                <th>Last Triggered</th>
+                <th>Created At</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="alertsTableBody">
+              <!-- Alert rows will be populated by JavaScript -->
+            </tbody>
+          </table>
+        </div>
+        <!-- Removed card-body wrapper -->
+      </div>
     </div>
 
-
     <script>
-        window.APP_CONFIG = {
-            detailViewRefreshInterval: {{ detail_refresh_interval | int }},
-            serverListRefreshInterval: {{ server_list_refresh_interval | int }}
-        };
+      window.APP_CONFIG = {
+          detailViewRefreshInterval: {{ detail_refresh_interval | int }},
+          serverListRefreshInterval: {{ server_list_refresh_interval | int }}
+      };
     </script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
-</body>
+  </body>
 </html>
