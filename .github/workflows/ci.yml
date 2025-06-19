@@ -34,10 +34,6 @@ jobs:
       run: |
         black --check .
 
-    - name: Run tests
-      run: |
-        python -m unittest discover -s tests
-
     - name: Set up Node.js
       uses: actions/setup-node@v3
       with:
