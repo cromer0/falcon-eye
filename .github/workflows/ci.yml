@@ -67,8 +67,32 @@ jobs:
     - name: Install ESLint
       run: npm install -g eslint
 
-    # The .eslintrc.js should be created in the next plan step and committed to the repo.
-    # For now, this step assumes .eslintrc.js will exist.
-    # Corrected ESLint command:
     - name: Lint JavaScript with ESLint
-      run: eslint --config .eslintrc.js "static/js/**/*.js"
+      run: eslint "static/js/**/*.js"
+
+    - name: Install Prettier
+      run: npm install -g prettier
+
+    - name: Check Formatting with Prettier
+      run: prettier --check "static/js/**/*.js" "templates/**/*.html" "static/**/*.html"
+
+    - name: Auto format HTML/JS with Prettier and commit changes
+      id: format_prettier # Give an id to this step to check its output
+      run: |
+        prettier --write "static/js/**/*.js" "templates/**/*.html" "static/**/*.html"
+        echo "::set-output name=formatted::$(git status --porcelain | wc -l)" # Check if prettier made changes
+
+    - name: Commit Prettier changes
+      if: steps.format_prettier.outputs.formatted > 0 # Only run if prettier made changes
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        commit_message: "style: Auto-format HTML/JS with Prettier"
+        branch: ${{ github.head_ref || github.ref_name }}
+        # IMPORTANT: For this step to push changes, especially on protected branches
+        # or if the default GITHUB_TOKEN permissions are restricted,
+        # you might need to use a Personal Access Token (PAT) with repo write scope.
+        # Store the PAT as a secret (e.g., GH_PAT) in your repository settings
+        # and pass it to the action:
+        # token: ${{ secrets.GH_PAT }}
+        # For now, this will attempt to commit with the default token.
+        # If it fails due to permissions, the above token line should be added.

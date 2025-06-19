@@ -212,13 +212,33 @@ To lint your JavaScript files:
    ```bash
    npm install -g eslint
    ```
-2. Create an ESLint configuration file (e.g., `.eslintrc.js`) in the project root. A basic example configuration is provided in the repository (`.eslintrc.js`).
+2. Create an ESLint configuration file (e.g., `eslint.config.js`) in the project root. A basic example configuration is provided in the repository (`eslint.config.js`).
 3. Run ESLint:
    ```bash
-   eslint "static/**/*.js"
+   eslint "static/js/**/*.js"
    ```
    You might need to adjust the command based on your file structure and if you have JS files elsewhere.
 The CI workflow will also run ESLint.
+
+### HTML & JavaScript Formatting
+
+We use **Prettier** for formatting HTML and JavaScript files to ensure a consistent style.
+
+To install Prettier (if not already installed via npm in the project, or globally for local use):
+```bash
+npm install -g prettier
+```
+
+To format your HTML and JavaScript files:
+```bash
+prettier --write "static/js/**/*.js" "templates/**/*.html" "static/**/*.html"
+```
+
+To check if files are formatted according to Prettier's style (useful for CI):
+```bash
+prettier --check "static/js/**/*.js" "templates/**/*.html" "static/**/*.html"
+```
+The CI workflow will use Prettier to check formatting and will also attempt to auto-format and commit changes.
 
 ---
 
