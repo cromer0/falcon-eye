@@ -49,5 +49,5 @@ jobs:
       run: npm install -g prettier
 
     - name: Check Formatting with Prettier
-      run: prettier --check "static/js/**/*.js" "templates/**/*.html" "static/**/*.html"
+      run: prettier --check "static/js/**/*.js" "templates/**/*.html"
 

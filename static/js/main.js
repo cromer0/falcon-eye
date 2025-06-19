@@ -1005,13 +1005,11 @@ document.addEventListener("DOMContentLoaded", () => {
       body: JSON.stringify(formData),
     })
       .then((response) =>
-        response
-          .json()
-          .then((data) => ({
-            ok: response.ok,
-            status: response.status,
-            body: data,
-          })),
+        response.json().then((data) => ({
+          ok: response.ok,
+          status: response.status,
+          body: data,
+        })),
       )
       .then((res) => {
         if (res.ok) {
@@ -1075,13 +1073,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (confirm("Are you sure you want to delete this alert?")) {
       fetch(`/api/alerts/${alertId}`, { method: "DELETE" })
         .then((response) =>
-          response
-            .json()
-            .then((data) => ({
-              ok: response.ok,
-              status: response.status,
-              body: data,
-            })),
+          response.json().then((data) => ({
+            ok: response.ok,
+            status: response.status,
+            body: data,
+          })),
         )
         .then((res) => {
           if (res.ok) {
@@ -1107,13 +1103,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     fetch(`/api/alerts/${alertId}/${action}`, { method: "POST" })
       .then((response) =>
-        response
-          .json()
-          .then((data) => ({
-            ok: response.ok,
-            status: response.status,
-            body: data,
-          })),
+        response.json().then((data) => ({
+          ok: response.ok,
+          status: response.status,
+          body: data,
+        })),
       )
       .then((res) => {
         if (res.ok) {
